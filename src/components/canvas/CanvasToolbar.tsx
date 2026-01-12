@@ -1,34 +1,33 @@
 import React from 'react';
-import { Download } from 'lucide-react';
+import { Minus, Plus } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { generateExportHtml } from '../../utils/export';
 
 export const CanvasToolbar: React.FC = () => {
-  const { objects, viewport } = useCanvasStore();
+  const { viewport, zoomCanvas } = useCanvasStore();
 
-  const handleExport = () => {
-    const htmlContent = generateExportHtml(objects, viewport);
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `infinite-canvas-${new Date().toISOString().slice(0, 10)}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  const handleZoomIn = () => zoomCanvas(1.1);
+  const handleZoomOut = () => zoomCanvas(0.9);
 
   return (
-    <div className="absolute top-4 right-4 z-50 flex gap-2">
-      <button
-        onClick={handleExport}
-        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded shadow-lg transition-colors"
-        title="Export as HTML"
+    <div className="absolute top-4 right-4 z-50 flex items-center gap-2 bg-white rounded-full shadow-lg px-3 py-1.5 text-gray-700 select-none">
+      <button 
+        onClick={handleZoomOut}
+        className="p-1 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"
+        title="Zoom Out"
       >
-        <Download size={18} />
-        <span>Export</span>
+        <Minus size={14} />
+      </button>
+      
+      <span className="text-sm font-medium min-w-[3rem] text-center">
+        {Math.round(viewport.zoom * 100)}%
+      </span>
+      
+      <button 
+        onClick={handleZoomIn}
+        className="p-1 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"
+        title="Zoom In"
+      >
+        <Plus size={14} />
       </button>
     </div>
   );

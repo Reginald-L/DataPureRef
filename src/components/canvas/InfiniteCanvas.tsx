@@ -8,6 +8,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectRenderer } from './CanvasObjectRenderer';
 import { readFileAsDataURL, getFileType } from '../../utils/file';
 
+import { ContextMenu } from './ContextMenu';
+
 export const InfiniteCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { 
@@ -25,6 +27,9 @@ export const InfiniteCanvas: React.FC = () => {
 
   // Selection Box State
   const [selectionBox, setSelectionBox] = useState<{ start: { x: number, y: number }, current: { x: number, y: number } } | null>(null);
+  
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Handle Keyboard Shortcuts (Delete/Backspace, L for Arrange)
   useEffect(() => {
@@ -418,12 +423,17 @@ export const InfiniteCanvas: React.FC = () => {
     });
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
   return (
     <div 
       ref={containerRef}
       className="canvas-container relative w-full h-screen overflow-hidden bg-[#1a1a1a] select-none"
       onDoubleClick={handleDoubleClick}
-      onContextMenu={(e) => e.preventDefault()}
+      onContextMenu={handleContextMenu}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onPointerDown={handlePointerDown}
@@ -456,6 +466,15 @@ export const InfiniteCanvas: React.FC = () => {
             width: Math.abs(selectionBox.current.x - selectionBox.start.x),
             height: Math.abs(selectionBox.current.y - selectionBox.start.y)
           }}
+        />
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu 
+          x={contextMenu.x} 
+          y={contextMenu.y} 
+          onClose={() => setContextMenu(null)} 
         />
       )}
     </div>
