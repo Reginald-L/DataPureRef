@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { GridBackground } from './GridBackground';
@@ -16,10 +16,14 @@ export const InfiniteCanvas: React.FC = () => {
     moveViewport, 
     addObject,
     removeObject,
-    selectedObjectId,
+    selectedObjectIds,
+    selectObjects,
     editingObjectId,
     objects
   } = useCanvasStore();
+
+  // Selection Box State
+  const [selectionBox, setSelectionBox] = useState<{ start: { x: number, y: number }, current: { x: number, y: number } } | null>(null);
 
   // Handle Keyboard Shortcuts (Delete/Backspace)
   useEffect(() => {
@@ -28,15 +32,15 @@ export const InfiniteCanvas: React.FC = () => {
       if (editingObjectId) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedObjectId) {
-          removeObject(selectedObjectId);
+        if (selectedObjectIds.length > 0) {
+          selectedObjectIds.forEach(id => removeObject(id));
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectId, editingObjectId, removeObject]);
+  }, [selectedObjectIds, editingObjectId, removeObject]);
 
   // Prevent default browser zoom and autoscroll (middle click)
   useEffect(() => {
@@ -181,7 +185,23 @@ export const InfiniteCanvas: React.FC = () => {
   const lastMousePosRef = useRef({ x: 0, y: 0 });
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    // Middle mouse button (button 1)
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const clientX = e.clientX - rect.left;
+    const clientY = e.clientY - rect.top;
+
+    // Shift + Left Click -> Start Marquee Selection
+    if (e.shiftKey && e.button === 0) {
+      e.preventDefault();
+      setSelectionBox({
+        start: { x: clientX, y: clientY },
+        current: { x: clientX, y: clientY }
+      });
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // Middle mouse button (button 1) -> Pan
     if (e.button === 1) {
       e.preventDefault();
       isDraggingRef.current = true;
@@ -191,6 +211,19 @@ export const InfiniteCanvas: React.FC = () => {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    // Update Selection Box
+    if (selectionBox) {
+      e.preventDefault();
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
+      
+      setSelectionBox(prev => prev ? { ...prev, current: { x: clientX, y: clientY } } : null);
+      return;
+    }
+
+    // Pan Canvas
     if (isDraggingRef.current) {
       e.preventDefault();
       const dx = e.clientX - lastMousePosRef.current.x;
@@ -201,6 +234,70 @@ export const InfiniteCanvas: React.FC = () => {
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    // Finalize Selection
+    if (selectionBox) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        // Calculate selection bounds in screen space
+        const minX = Math.min(selectionBox.start.x, selectionBox.current.x);
+        const minY = Math.min(selectionBox.start.y, selectionBox.current.y);
+        const maxX = Math.max(selectionBox.start.x, selectionBox.current.x);
+        const maxY = Math.max(selectionBox.start.y, selectionBox.current.y);
+
+        // Convert to canvas coordinates to compare with objects
+        // But wait, screenToCanvas converts a single point.
+        // The selection box is an AABB in screen space.
+        // We need to check if object's AABB (in canvas space) converted to screen space intersects with selection box.
+        
+        const newSelectedIds: string[] = [];
+
+        objects.forEach(obj => {
+          // Object bounds in canvas space
+          const objCanvasX = obj.position.x;
+          const objCanvasY = obj.position.y;
+          const objCanvasW = obj.size.width;
+          const objCanvasH = obj.size.height;
+
+          // Convert object position to screen space
+          const screenPos = canvasToScreen(objCanvasX, objCanvasY, viewport);
+          // Width/Height in screen space scales with zoom
+          const screenW = objCanvasW * viewport.zoom;
+          const screenH = objCanvasH * viewport.zoom;
+
+          const objScreenMinX = screenPos.x;
+          const objScreenMinY = screenPos.y;
+          const objScreenMaxX = screenPos.x + screenW;
+          const objScreenMaxY = screenPos.y + screenH;
+
+          // Check Intersection
+          const isIntersecting = 
+            minX < objScreenMaxX &&
+            maxX > objScreenMinX &&
+            minY < objScreenMaxY &&
+            maxY > objScreenMinY;
+
+          if (isIntersecting) {
+            newSelectedIds.push(obj.id);
+          }
+        });
+
+        // If we are holding shift, maybe we want to ADD to selection?
+        // The prompt says "Hold shift... to select multiple". Usually this implies a new selection set or adding.
+        // Standard behavior for marquee: usually replaces selection unless Ctrl is held.
+        // But since Shift is the trigger here, let's make it replace or add?
+        // Let's make it REPLACE for now as it's a specific mode "Shift+Drag".
+        // Or if the user meant "add to selection", we can merge.
+        // Let's default to REPLACE for clarity, as Shift+Drag is often "Add" in some apps but "New Selection" in others.
+        // Actually, in Windows Explorer, drag selects. Shift+Click selects range. Ctrl+Click toggles.
+        // Since we require Shift to even START dragging, it's safer to just set the selection to whatever is in the box.
+        selectObjects(newSelectedIds);
+      }
+      
+      setSelectionBox(null);
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      return;
+    }
+
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -307,6 +404,19 @@ export const InfiniteCanvas: React.FC = () => {
           <CanvasObjectRenderer key={obj.id} object={obj} />
         ))}
       </div>
+
+      {/* Selection Box */}
+      {selectionBox && (
+        <div 
+          className="absolute border border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+          style={{
+            left: Math.min(selectionBox.start.x, selectionBox.current.x),
+            top: Math.min(selectionBox.start.y, selectionBox.current.y),
+            width: Math.abs(selectionBox.current.x - selectionBox.start.x),
+            height: Math.abs(selectionBox.current.y - selectionBox.start.y)
+          }}
+        />
+      )}
     </div>
   );
 };

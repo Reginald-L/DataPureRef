@@ -6,7 +6,7 @@ import { openDB } from 'idb';
 interface CanvasStore {
   objects: CanvasObject[];
   viewport: Viewport;
-  selectedObjectId: string | null;
+  selectedObjectIds: string[]; // Changed from single ID to array
   editingObjectId: string | null;
   
   setViewport: (viewport: Partial<Viewport>) => void;
@@ -16,7 +16,9 @@ interface CanvasStore {
   addObject: (object: CanvasObject) => void;
   updateObject: (id: string, updates: Partial<CanvasObject>) => void;
   removeObject: (id: string) => void;
-  selectObject: (id: string | null) => void;
+  selectObject: (id: string | null) => void; // Backward compatibility: selects single or clears
+  selectObjects: (ids: string[]) => void; // Select multiple
+  toggleObjectSelection: (id: string) => void; // Toggle single
   setEditingObjectId: (id: string | null) => void;
   loadCanvas: (state: { objects: CanvasObject[]; viewport: Viewport }) => void;
   
@@ -65,7 +67,7 @@ export const useCanvasStore = create<CanvasStore>()(
     (set, get) => ({
       objects: [],
       viewport: { x: 0, y: 0, zoom: 1 },
-      selectedObjectId: null,
+      selectedObjectIds: [],
       editingObjectId: null,
 
       setViewport: (viewport) => 
@@ -96,7 +98,7 @@ export const useCanvasStore = create<CanvasStore>()(
       addObject: (object) =>
         set((state) => ({
           objects: [...state.objects, object],
-          selectedObjectId: object.id // Select new object
+          selectedObjectIds: [object.id] // Select new object
         })),
 
       updateObject: (id, updates) =>
@@ -109,13 +111,28 @@ export const useCanvasStore = create<CanvasStore>()(
       removeObject: (id) =>
         set((state) => ({
           objects: state.objects.filter((obj) => obj.id !== id),
-          selectedObjectId: state.selectedObjectId === id ? null : state.selectedObjectId
+          selectedObjectIds: state.selectedObjectIds.filter(selectedId => selectedId !== id)
         })),
 
       selectObject: (id) =>
         set(() => ({
-          selectedObjectId: id
+          selectedObjectIds: id ? [id] : []
         })),
+
+      selectObjects: (ids) =>
+        set(() => ({
+          selectedObjectIds: ids
+        })),
+
+      toggleObjectSelection: (id) =>
+        set((state) => {
+          const isSelected = state.selectedObjectIds.includes(id);
+          return {
+            selectedObjectIds: isSelected
+              ? state.selectedObjectIds.filter(selectedId => selectedId !== id)
+              : [...state.selectedObjectIds, id]
+          };
+        }),
 
       setEditingObjectId: (id) =>
         set(() => ({

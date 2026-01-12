@@ -47,12 +47,14 @@ interface CanvasObjectRendererProps {
 
 const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ object }) => {
   // Use selective selectors to avoid unnecessary re-renders when viewport changes
-  const isSelected = useCanvasStore((state) => state.selectedObjectId === object.id);
+  const isSelected = useCanvasStore((state) => state.selectedObjectIds.includes(object.id));
   const isEditing = useCanvasStore((state) => state.editingObjectId === object.id);
   
   const updateObject = useCanvasStore((state) => state.updateObject);
+  const updateObjects = useCanvasStore((state) => state.updateObjects);
   const removeObject = useCanvasStore((state) => state.removeObject);
   const selectObject = useCanvasStore((state) => state.selectObject);
+  const toggleObjectSelection = useCanvasStore((state) => state.toggleObjectSelection);
   const setEditingObjectId = useCanvasStore((state) => state.setEditingObjectId);
 
   const handleFinishEdit = () => {
@@ -67,25 +69,62 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
 
   const bind = useGesture(
     {
-      onDrag: ({ delta: [dx, dy], event, first, buttons }) => {
+      onDrag: ({ delta: [dx, dy], event, first, buttons, shiftKey }) => {
         // Only handle Left Click (buttons === 1) for moving objects
         if (buttons === 1) {
           // Stop propagation so canvas doesn't pan
           (event as any).stopPropagation();
           
           if (first) {
-            selectObject(object.id);
+            // If dragging an unselected object, select it (unless shift is held, handled in onClick, 
+            // but dragging usually implies selection).
+            // Standard behavior: 
+            // - If not selected, select it (clearing others).
+            // - If selected, keep selection and move all.
+            const { selectedObjectIds } = useCanvasStore.getState();
+            if (!selectedObjectIds.includes(object.id)) {
+                if (shiftKey) {
+                    toggleObjectSelection(object.id);
+                } else {
+                    selectObject(object.id);
+                }
+            }
           }
 
           // Access viewport zoom directly from store state to avoid subscription
-          const zoom = useCanvasStore.getState().viewport.zoom;
+          const { viewport, selectedObjectIds, objects } = useCanvasStore.getState();
+          const zoom = viewport.zoom;
+          const deltaX = dx / zoom;
+          const deltaY = dy / zoom;
 
-          updateObject(object.id, {
-            position: {
-              x: object.position.x + dx / zoom,
-              y: object.position.y + dy / zoom
-            }
-          });
+          // If current object is selected, move all selected objects
+          if (selectedObjectIds.includes(object.id)) {
+            const updates = selectedObjectIds.map(id => {
+                const obj = objects.find(o => o.id === id);
+                if (obj) {
+                    return {
+                        id,
+                        changes: {
+                            position: {
+                                x: obj.position.x + deltaX,
+                                y: obj.position.y + deltaY
+                            }
+                        }
+                    };
+                }
+                return null;
+            }).filter(Boolean) as { id: string; changes: Partial<CanvasObject> }[];
+            
+            updateObjects(updates);
+          } else {
+            // Fallback for single object move (should be covered above, but safe to keep)
+            updateObject(object.id, {
+                position: {
+                  x: object.position.x + deltaX,
+                  y: object.position.y + deltaY
+                }
+              });
+          }
         }
       }
     },
@@ -167,8 +206,10 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
       }}
       onClick={(e) => {
         e.stopPropagation();
-        if (!isSelected) {
-          selectObject(object.id);
+        if (e.shiftKey) {
+            toggleObjectSelection(object.id);
+        } else if (!isSelected) {
+            selectObject(object.id);
         }
       }}
       onDoubleClick={(e) => {
