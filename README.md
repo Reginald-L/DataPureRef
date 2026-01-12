@@ -81,6 +81,10 @@ DataPureRef 是一个基于 React 的高性能无限画布应用，旨在帮助�
 
 欢迎提交 Issue 或 Pull Request 来改进这个项目！
 
+## ❤️ 致谢
+
+本项目的设计灵感来源于 [PureRef](https://www.pureref.com/)。PureRef 是一款卓越的参考图像管理软件，为创意工作者提供了极大的便利。DataPureRef 致力于在 Web 端复刻并探索类似的流畅体验。在此向 PureRef 团队致以诚挚的谢意！
+
 ## 📄 许可证
 
 本项目基于 MIT 许可证开源。
