@@ -19,13 +19,14 @@ export const InfiniteCanvas: React.FC = () => {
     selectedObjectIds,
     selectObjects,
     editingObjectId,
-    objects
+    objects,
+    updateObjects
   } = useCanvasStore();
 
   // Selection Box State
   const [selectionBox, setSelectionBox] = useState<{ start: { x: number, y: number }, current: { x: number, y: number } } | null>(null);
 
-  // Handle Keyboard Shortcuts (Delete/Backspace)
+  // Handle Keyboard Shortcuts (Delete/Backspace, L for Arrange)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // If we are editing text, don't delete the object on Backspace/Delete
@@ -36,11 +37,51 @@ export const InfiniteCanvas: React.FC = () => {
           selectedObjectIds.forEach(id => removeObject(id));
         }
       }
+
+      // 'L' key to arrange selected objects horizontally
+      if ((e.key === 'l' || e.key === 'L') && selectedObjectIds.length > 1) {
+        // Filter out selected objects
+        const selectedObjects = objects.filter(obj => selectedObjectIds.includes(obj.id));
+        
+        if (selectedObjects.length === 0) return;
+
+        // Sort by name/content
+        selectedObjects.sort((a, b) => {
+          const getName = (obj: any) => {
+             if (obj.type === 'text') return obj.content || '';
+             if (obj.type === 'image') return obj.alt || '';
+             if (obj.type === 'video') return obj.src || '';
+             return '';
+          };
+          return getName(a).localeCompare(getName(b));
+        });
+
+        // Determine starting position (top-left of the bounding box of all selected items)
+        const minX = Math.min(...selectedObjects.map(o => o.position.x));
+        const minY = Math.min(...selectedObjects.map(o => o.position.y));
+
+        // Arrange horizontally
+        let currentX = minX;
+        const gap = 20; // 20px gap
+        
+        const updates = selectedObjects.map(obj => {
+          const update = {
+            id: obj.id,
+            changes: {
+              position: { x: currentX, y: minY } // Top align
+            }
+          };
+          currentX += obj.size.width + gap;
+          return update;
+        });
+
+        updateObjects(updates);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectIds, editingObjectId, removeObject]);
+  }, [selectedObjectIds, editingObjectId, removeObject, objects, updateObjects]);
 
   // Prevent default browser zoom and autoscroll (middle click)
   useEffect(() => {
