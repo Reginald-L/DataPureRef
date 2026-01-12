@@ -1,11 +1,45 @@
 import React from 'react';
 import { useGesture } from '@use-gesture/react';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { CanvasObject } from '../../types/canvas';
+import { CanvasObject, ImageObject } from '../../types/canvas';
 import { ImageRenderer } from './renderers/ImageRenderer';
 import { VideoRenderer } from './renderers/VideoRenderer';
 import { TextRenderer } from './renderers/TextRenderer';
 import { cn } from '../../lib/utils';
+
+interface ResizeHandleProps {
+  cursor: string;
+  onResize: (delta: [number, number]) => void;
+  className?: string;
+}
+
+const ResizeHandle: React.FC<ResizeHandleProps> = ({ cursor, onResize, className }) => {
+  const bind = useGesture({
+    onDrag: ({ delta, event }) => {
+      event.stopPropagation();
+      onResize(delta);
+    },
+  }, {
+    drag: {
+      filterTaps: true,
+      eventOptions: { passive: false } // Important for touch devices
+    }
+  });
+
+  const gestures = bind();
+
+  return (
+    <div
+      {...gestures}
+      className={cn("absolute w-3 h-3 bg-white border border-blue-500 rounded-full z-50 hover:scale-125 transition-transform", className)}
+      style={{ cursor, touchAction: 'none' }}
+      onPointerDown={(e) => {
+        gestures.onPointerDown?.(e as any);
+        e.stopPropagation();
+      }}
+    />
+  );
+};
 
 interface CanvasObjectRendererProps {
   object: CanvasObject;
@@ -66,6 +100,44 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
   // Extract onPointerDown to handle stopPropagation
   const { onPointerDown, ...restGestures } = gestures;
 
+  const handleResize = (delta: [number, number], direction: { x: -1 | 0 | 1, y: -1 | 0 | 1 }) => {
+    const zoom = useCanvasStore.getState().viewport.zoom;
+    const dx = delta[0] / zoom;
+    const dy = delta[1] / zoom;
+
+    const currentWidth = object.size.width;
+    const currentHeight = object.size.height;
+    const currentX = object.position.x;
+    const currentY = object.position.y;
+
+    let newWidth = currentWidth;
+    let newHeight = currentHeight;
+    let newX = currentX;
+    let newY = currentY;
+
+    // Calculate new dimensions and position based on direction
+    if (direction.x === 1) {
+      newWidth = Math.max(20, currentWidth + dx);
+    } else if (direction.x === -1) {
+      const w = Math.max(20, currentWidth - dx);
+      newX += currentWidth - w; // Adjust X to keep right side fixed
+      newWidth = w;
+    }
+
+    if (direction.y === 1) {
+      newHeight = Math.max(20, currentHeight + dy);
+    } else if (direction.y === -1) {
+      const h = Math.max(20, currentHeight - dy);
+      newY += currentHeight - h; // Adjust Y to keep bottom side fixed
+      newHeight = h;
+    }
+
+    updateObject(object.id, {
+      size: { width: newWidth, height: newHeight },
+      position: { x: newX, y: newY }
+    });
+  };
+
   const renderContent = () => {
     switch (object.type) {
       case 'image':
@@ -103,10 +175,20 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
         e.stopPropagation();
         if (object.type === 'text') {
           setEditingObjectId(object.id);
+        } else if (object.type === 'image') {
+          // Reset image to original size
+          const imgObject = object as ImageObject;
+          const img = new Image();
+          img.src = imgObject.src;
+          img.onload = () => {
+             updateObject(object.id, {
+               size: { width: img.width, height: img.height }
+             });
+          };
         }
       }}
       className={cn(
-        "absolute touch-none select-none box-border transition-shadow",
+        "absolute touch-none select-none box-border transition-shadow group",
         isSelected && !isEditing && "ring-2 ring-blue-500 shadow-lg",
       )}
       style={{
@@ -119,6 +201,36 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
       }}
     >
       {renderContent()}
+
+      {/* Resize Handles - Only show when selected and not editing text */}
+      {isSelected && !isEditing && (
+        <>
+          {/* Top Left */}
+          <ResizeHandle 
+            cursor="nw-resize" 
+            className="-top-1.5 -left-1.5"
+            onResize={(delta) => handleResize(delta, { x: -1, y: -1 })}
+          />
+          {/* Top Right */}
+          <ResizeHandle 
+            cursor="ne-resize" 
+            className="-top-1.5 -right-1.5"
+            onResize={(delta) => handleResize(delta, { x: 1, y: -1 })}
+          />
+          {/* Bottom Left */}
+          <ResizeHandle 
+            cursor="sw-resize" 
+            className="-bottom-1.5 -left-1.5"
+            onResize={(delta) => handleResize(delta, { x: -1, y: 1 })}
+          />
+          {/* Bottom Right */}
+          <ResizeHandle 
+            cursor="se-resize" 
+            className="-bottom-1.5 -right-1.5"
+            onResize={(delta) => handleResize(delta, { x: 1, y: 1 })}
+          />
+        </>
+      )}
     </div>
   );
 };

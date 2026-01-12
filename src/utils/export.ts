@@ -116,6 +116,21 @@ export const generateExportHtml = (objects: CanvasObject[], viewport: Viewport):
                     const img = document.createElement('img');
                     img.src = obj.src;
                     el.appendChild(img);
+
+                    // Double click to reset size
+                    el.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        const newImg = new Image();
+                        newImg.src = obj.src;
+                        newImg.onload = () => {
+                            // Update object size in state (though specific update logic isn't fully reactive here, 
+                            // we manipulate DOM directly for export view)
+                            obj.size.width = newImg.width;
+                            obj.size.height = newImg.height;
+                            el.style.width = newImg.width + 'px';
+                            el.style.height = newImg.height + 'px';
+                        };
+                    });
                 } else if (obj.type === 'video') {
                     el.classList.add('obj-video');
                     const video = document.createElement('video');
