@@ -9,6 +9,8 @@ import { CanvasObjectRenderer } from './CanvasObjectRenderer';
 import { readFileAsDataURL, getFileType } from '../../utils/file';
 
 import { ContextMenu } from './ContextMenu';
+import { GroupToolbar } from './GroupToolbar';
+import { GroupObject } from '../../types/canvas';
 
 export const InfiniteCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,7 +24,10 @@ export const InfiniteCanvas: React.FC = () => {
     selectObjects,
     editingObjectId,
     objects,
-    updateObjects
+    updateObjects,
+    groupSelected,
+    ungroupObject,
+    alignGroupChildren
   } = useCanvasStore();
 
   // Selection Box State
@@ -40,6 +45,22 @@ export const InfiniteCanvas: React.FC = () => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedObjectIds.length > 0) {
           selectedObjectIds.forEach(id => removeObject(id));
+        }
+      }
+
+      // Group / Ungroup Shortcuts
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          // Ungroup
+          if (selectedObjectIds.length === 1) {
+             ungroupObject(selectedObjectIds[0]);
+          }
+        } else {
+          // Group
+          if (selectedObjectIds.length > 1) {
+            groupSelected();
+          }
         }
       }
 

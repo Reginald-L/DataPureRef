@@ -35,3 +35,11 @@ export interface Viewport {
   y: number;
   zoom: number;
 }
+
+export interface CanvasPage {
+  id: string;
+  name: string;
+  objects: CanvasObject[];
+  viewport: Viewport;
+  updatedAt: number;
+}

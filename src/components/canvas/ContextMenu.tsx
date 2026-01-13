@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Download } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { generateExportHtml } from '../../utils/export';
 
@@ -10,7 +10,20 @@ interface ContextMenuProps {
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
-  const { objects, viewport } = useCanvasStore();
+  const { 
+    objects, 
+    viewport,
+    pages,
+    activePageId,
+    addPage,
+    switchPage,
+    deletePage,
+    selectedObjectIds,
+    groupSelected,
+    ungroupObject
+  } = useCanvasStore();
+
+  const [showPageSubmenu, setShowPageSubmenu] = useState(false);
 
   const handleExport = () => {
     const htmlContent = generateExportHtml(objects, viewport);
@@ -27,6 +40,33 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     onClose();
   };
 
+  const handleAddPage = () => {
+    addPage();
+    onClose();
+  };
+
+  const handleSwitchPage = (pageId: string) => {
+    switchPage(pageId);
+    onClose();
+  };
+
+  const handleDeletePage = (e: React.MouseEvent, pageId: string) => {
+    e.stopPropagation();
+    deletePage(pageId);
+  };
+
+  const handleGroup = () => {
+    groupSelected();
+    onClose();
+  };
+
+  const handleUngroup = () => {
+    if (selectedObjectIds.length === 1) {
+      ungroupObject(selectedObjectIds[0]);
+    }
+    onClose();
+  };
+
   // Close context menu on click outside
   useEffect(() => {
     const handleClickOutside = () => onClose();
@@ -34,21 +74,116 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     return () => window.removeEventListener('click', handleClickOutside);
   }, [onClose]);
 
+  // Determine which group actions to show
+  const showGroup = selectedObjectIds.length > 1;
+  const singleSelectedObject = selectedObjectIds.length === 1 
+    ? objects.find(o => o.id === selectedObjectIds[0]) 
+    : null;
+  const showUngroup = singleSelectedObject?.type === 'group';
+
   return (
     <div 
-      className="absolute bg-[#2a2a2a] border border-[#444] rounded shadow-xl py-1 z-[100] min-w-[150px]"
+      className="absolute bg-[#2a2a2a] border border-[#444] rounded-lg shadow-xl py-1 z-[100] min-w-[200px]"
       style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Pages Submenu Trigger */}
+      <div 
+        className="relative"
+        onMouseEnter={() => setShowPageSubmenu(true)}
+        onMouseLeave={() => setShowPageSubmenu(false)}
+      >
+        <button
+          className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center justify-between text-sm transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <File size={14} />
+            <span>Pages</span>
+          </div>
+          <ChevronRight size={14} />
+        </button>
+
+        {/* Submenu */}
+        {showPageSubmenu && (
+          <div 
+            className="absolute left-full top-0 ml-1 bg-[#2a2a2a] border border-[#444] rounded-lg shadow-xl py-1 min-w-[180px]"
+          >
+            <div className="max-h-[200px] overflow-y-auto custom-scrollbar flex flex-col gap-0.5">
+              {pages.map((page) => (
+                <div 
+                  key={page.id}
+                  onClick={() => handleSwitchPage(page.id)}
+                  className={`
+                    w-full text-left px-3 py-1.5 flex items-center justify-between group
+                    ${activePageId === page.id ? 'bg-[#3a3a3a] text-blue-400' : 'text-gray-300 hover:bg-[#3a3a3a]'}
+                    cursor-pointer transition-colors
+                  `}
+                >
+                  <span className="text-sm truncate max-w-[120px]">{page.name}</span>
+                  
+                  {pages.length > 1 && activePageId !== page.id && (
+                    <button
+                      onClick={(e) => handleDeletePage(e, page.id)}
+                      className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                      title="Delete Page"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                  {activePageId === page.id && <Check size={12} className="text-blue-400" />}
+                </div>
+              ))}
+            </div>
+            
+            <div className="h-px bg-[#444] my-1" />
+            
+            <button
+              onClick={handleAddPage}
+              className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
+            >
+              <Plus size={14} className="text-gray-400" />
+              <span>New Page</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="h-px bg-[#444] my-1" />
+
+      {/* Group Actions */}
+      {(showGroup || showUngroup) && (
+        <>
+          {showGroup && (
+            <button
+              onClick={handleGroup}
+              className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
+            >
+              <Group size={14} />
+              <span>Group Selection</span>
+            </button>
+          )}
+          
+          {showUngroup && (
+            <button
+              onClick={handleUngroup}
+              className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
+            >
+              <Ungroup size={14} />
+              <span>Ungroup</span>
+            </button>
+          )}
+          <div className="h-px bg-[#444] my-1" />
+        </>
+      )}
+
       <button
         onClick={handleExport}
-        className="w-full text-left px-4 py-2 text-white hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
+        className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
       >
         <Download size={14} />
         <span>Export as HTML</span>
       </button>
-      {/* Future menu items can go here */}
     </div>
   );
 };
