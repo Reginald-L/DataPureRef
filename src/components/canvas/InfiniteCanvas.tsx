@@ -332,6 +332,11 @@ export const InfiniteCanvas: React.FC = () => {
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     }
+
+    // Left click on background -> Deselect all
+    if (e.button === 0 && !e.shiftKey) {
+       selectObjects([]);
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
