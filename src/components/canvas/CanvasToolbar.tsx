@@ -3,7 +3,8 @@ import { Minus, Plus } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 
 export const CanvasToolbar: React.FC = () => {
-  const { viewport, zoomCanvas } = useCanvasStore();
+  const viewport = useCanvasStore((state) => state.viewport);
+  const zoomCanvas = useCanvasStore((state) => state.zoomCanvas);
 
   const handleZoomIn = () => zoomCanvas(1.1);
   const handleZoomOut = () => zoomCanvas(0.9);

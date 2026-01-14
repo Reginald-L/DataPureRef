@@ -5,6 +5,7 @@ import { CanvasObject, ImageObject } from '../../types/canvas';
 import { ImageRenderer } from './renderers/ImageRenderer';
 import { VideoRenderer } from './renderers/VideoRenderer';
 import { TextRenderer } from './renderers/TextRenderer';
+import { GroupRenderer } from './GroupRenderer';
 import { cn } from '../../lib/utils';
 
 interface ResizeHandleProps {
@@ -192,6 +193,8 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
             onFinishEdit={handleFinishEdit}
           />
         );
+      case 'group':
+        return <GroupRenderer object={object as any} />;
       default:
         return null;
     }

@@ -20,7 +20,7 @@ interface CanvasStore {
 
   setViewport: (viewport: Partial<Viewport>) => void;
   moveViewport: (deltaX: number, deltaY: number) => void;
-  zoomCanvas: (scale: number, center?: { x: number; y: number }) => void;
+  zoomCanvas: (scale: number) => void;
   
   addObject: (object: CanvasObject) => void;
   updateObject: (id: string, updates: Partial<CanvasObject>) => void;
@@ -77,7 +77,7 @@ const idbStorage = {
 
 export const useCanvasStore = create<CanvasStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       pages: [],
       activePageId: 'default',
       objects: [],
@@ -197,7 +197,7 @@ export const useCanvasStore = create<CanvasStore>()(
             };
         }),
 
-      zoomCanvas: (scale, center) =>
+      zoomCanvas: (scale) =>
         set((state) => {
           const newZoom = Math.max(0.1, Math.min(5, state.viewport.zoom * scale));
           const newViewport = {

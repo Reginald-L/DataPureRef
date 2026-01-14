@@ -1,4 +1,3 @@
-import React from 'react';
 import { InfiniteCanvas } from './components/canvas/InfiniteCanvas';
 
 function App() {

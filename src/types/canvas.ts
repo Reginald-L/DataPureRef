@@ -1,6 +1,5 @@
-export interface CanvasObject {
+export interface BaseCanvasObject {
   id: string;
-  type: 'image' | 'video' | 'text';
   position: { x: number; y: number };
   size: { width: number; height: number };
   zIndex: number;
@@ -8,20 +7,20 @@ export interface CanvasObject {
   updatedAt: number;
 }
 
-export interface ImageObject extends CanvasObject {
+export interface ImageObject extends BaseCanvasObject {
   type: 'image';
   src: string;
   alt?: string;
 }
 
-export interface VideoObject extends CanvasObject {
+export interface VideoObject extends BaseCanvasObject {
   type: 'video';
   src: string;
   thumbnail?: string;
   currentTime?: number;
 }
 
-export interface TextObject extends CanvasObject {
+export interface TextObject extends BaseCanvasObject {
   type: 'text';
   content: string;
   fontSize: number;
@@ -29,6 +28,13 @@ export interface TextObject extends CanvasObject {
   fontStyle: 'normal' | 'italic';
   color: string;
 }
+
+export interface GroupObject extends BaseCanvasObject {
+  type: 'group';
+  children: CanvasObject[];
+}
+
+export type CanvasObject = ImageObject | VideoObject | TextObject | GroupObject;
 
 export interface Viewport {
   x: number;

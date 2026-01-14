@@ -10,7 +10,17 @@ import { readFileAsDataURL, getFileType } from '../../utils/file';
 
 import { ContextMenu } from './ContextMenu';
 import { GroupToolbar } from './GroupToolbar';
-import { GroupObject } from '../../types/canvas';
+import { CanvasObject } from '../../types/canvas';
+
+const ObjectLayer = React.memo(({ objects }: { objects: CanvasObject[] }) => {
+  return (
+    <>
+      {objects.map((obj) => (
+        <CanvasObjectRenderer key={obj.id} object={obj} />
+      ))}
+    </>
+  );
+});
 
 export const InfiniteCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,8 +36,7 @@ export const InfiniteCanvas: React.FC = () => {
     objects,
     updateObjects,
     groupSelected,
-    ungroupObject,
-    alignGroupChildren
+    ungroupObject
   } = useCanvasStore();
 
   // Selection Box State
@@ -35,6 +44,37 @@ export const InfiniteCanvas: React.FC = () => {
   
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+
+  useEffect(() => {
+    const handleResize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const visibleObjects = React.useMemo(() => {
+    const buffer = 500; // Extra pixels around viewport
+    const visibleLeft = -viewport.x / viewport.zoom - buffer;
+    const visibleTop = -viewport.y / viewport.zoom - buffer;
+    const visibleRight = (windowSize.width - viewport.x) / viewport.zoom + buffer;
+    const visibleBottom = (windowSize.height - viewport.y) / viewport.zoom + buffer;
+
+    return objects.filter(obj => {
+      // Always show selected objects to avoid glitches
+      if (selectedObjectIds.includes(obj.id)) return true;
+      
+      const objRight = obj.position.x + obj.size.width;
+      const objBottom = obj.position.y + obj.size.height;
+
+      return (
+        objRight >= visibleLeft &&
+        obj.position.x <= visibleRight &&
+        objBottom >= visibleTop &&
+        obj.position.y <= visibleBottom
+      );
+    });
+  }, [objects, viewport, windowSize, selectedObjectIds]);
 
   // Handle Keyboard Shortcuts (Delete/Backspace, L for Arrange)
   useEffect(() => {
@@ -373,7 +413,7 @@ export const InfiniteCanvas: React.FC = () => {
 
   useGesture(
     {
-      onWheel: ({ event, delta: [, dy], ctrlKey }) => {
+      onWheel: ({ event, delta: [, dy] }) => {
         // Zoom on wheel
         event.preventDefault();
         
@@ -464,6 +504,7 @@ export const InfiniteCanvas: React.FC = () => {
     >
       <GridBackground viewport={viewport} />
       <CanvasToolbar />
+      <GroupToolbar />
       
       {/* Object Layer */}
       <div 
@@ -472,9 +513,7 @@ export const InfiniteCanvas: React.FC = () => {
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`
         }}
       >
-        {objects.map(obj => (
-          <CanvasObjectRenderer key={obj.id} object={obj} />
-        ))}
+        <ObjectLayer objects={visibleObjects} />
       </div>
 
       {/* Selection Box */}
