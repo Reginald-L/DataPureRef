@@ -12,6 +12,14 @@ interface CanvasStore {
   selectedObjectIds: string[]; 
   editingObjectId: string | null;
   
+  history: {
+    past: CanvasObject[][];
+    future: CanvasObject[][];
+  };
+
+  undo: () => void;
+  redo: () => void;
+  
   // Page Management
   addPage: () => void;
   switchPage: (pageId: string) => void;
@@ -84,6 +92,57 @@ export const useCanvasStore = create<CanvasStore>()(
       viewport: { x: 0, y: 0, zoom: 1 },
       selectedObjectIds: [],
       editingObjectId: null,
+      history: { past: [], future: [] },
+
+      undo: () => set((state) => {
+        const { past, future } = state.history;
+        if (past.length === 0) return {};
+
+        const previous = past[past.length - 1];
+        const newPast = past.slice(0, past.length - 1);
+        const newFuture = [state.objects, ...future];
+
+        const newPages = state.pages.map(p => 
+            p.id === state.activePageId 
+            ? { ...p, objects: previous, updatedAt: Date.now() } 
+            : p
+        );
+
+        return {
+            objects: previous,
+            history: {
+                past: newPast,
+                future: newFuture
+            },
+            pages: newPages,
+            selectedObjectIds: [] 
+        };
+      }),
+
+      redo: () => set((state) => {
+        const { past, future } = state.history;
+        if (future.length === 0) return {};
+
+        const next = future[0];
+        const newFuture = future.slice(1);
+        const newPast = [...past, state.objects];
+
+        const newPages = state.pages.map(p => 
+            p.id === state.activePageId 
+            ? { ...p, objects: next, updatedAt: Date.now() } 
+            : p
+        );
+
+        return {
+            objects: next,
+            history: {
+                past: newPast,
+                future: newFuture
+            },
+            pages: newPages,
+            selectedObjectIds: []
+        };
+      }),
 
       addPage: () => set((state) => {
         const newPageId = uuidv4();
@@ -112,7 +171,8 @@ export const useCanvasStore = create<CanvasStore>()(
           objects: newPage.objects,
           viewport: newPage.viewport,
           selectedObjectIds: [],
-          editingObjectId: null
+          editingObjectId: null,
+          history: { past: [], future: [] }
         };
       }),
 
@@ -135,7 +195,8 @@ export const useCanvasStore = create<CanvasStore>()(
           objects: targetPage.objects,
           viewport: targetPage.viewport,
           selectedObjectIds: [],
-          editingObjectId: null
+          editingObjectId: null,
+          history: { past: [], future: [] }
         };
       }),
 
@@ -153,7 +214,8 @@ export const useCanvasStore = create<CanvasStore>()(
                 objects: newActive.objects,
                 viewport: newActive.viewport,
                 selectedObjectIds: [],
-                editingObjectId: null
+                editingObjectId: null,
+                history: { past: [], future: [] }
             };
         }
 
@@ -226,7 +288,11 @@ export const useCanvasStore = create<CanvasStore>()(
             return {
                 objects: newObjects,
                 selectedObjectIds: [object.id], // Select new object,
-                pages: newPages
+                pages: newPages,
+                history: {
+                    past: [...state.history.past, state.objects].slice(-50),
+                    future: []
+                }
             };
         }),
 
@@ -242,7 +308,11 @@ export const useCanvasStore = create<CanvasStore>()(
             );
             return {
                 objects: newObjects,
-                pages: newPages
+                pages: newPages,
+                history: {
+                    past: [...state.history.past, state.objects].slice(-50),
+                    future: []
+                }
             };
         }),
 
@@ -257,7 +327,11 @@ export const useCanvasStore = create<CanvasStore>()(
             return {
                 objects: newObjects,
                 selectedObjectIds: state.selectedObjectIds.filter(selectedId => selectedId !== id),
-                pages: newPages
+                pages: newPages,
+                history: {
+                    past: [...state.history.past, state.objects].slice(-50),
+                    future: []
+                }
             };
         }),
 
@@ -304,7 +378,8 @@ export const useCanvasStore = create<CanvasStore>()(
             return {
                 objects: loadedState.objects,
                 viewport: loadedState.viewport,
-                pages: newPages
+                pages: newPages,
+                history: { past: [], future: [] }
             };
         }),
 
@@ -327,7 +402,11 @@ export const useCanvasStore = create<CanvasStore>()(
 
           return {
             objects: newObjects,
-            pages: newPages
+            pages: newPages,
+            history: {
+                past: [...state.history.past, state.objects].slice(-50),
+                future: []
+            }
           };
         }),
 
@@ -380,7 +459,11 @@ export const useCanvasStore = create<CanvasStore>()(
           return {
             objects: newObjects,
             selectedObjectIds: [groupObject.id],
-            pages: newPages
+            pages: newPages,
+            history: {
+                past: [...state.history.past, state.objects].slice(-50),
+                future: []
+            }
           };
         }),
 
@@ -411,7 +494,11 @@ export const useCanvasStore = create<CanvasStore>()(
           return {
             objects: newObjects,
             selectedObjectIds: children.map((c) => c.id),
-            pages: newPages
+            pages: newPages,
+            history: {
+                past: [...state.history.past, state.objects].slice(-50),
+                future: []
+            }
           };
         }),
 
@@ -444,7 +531,14 @@ export const useCanvasStore = create<CanvasStore>()(
             : p
           );
 
-          return { objects, pages: newPages };
+          return { 
+              objects, 
+              pages: newPages,
+              history: {
+                  past: [...state.history.past, state.objects].slice(-50),
+                  future: []
+              }
+          };
         })
     }),
     {

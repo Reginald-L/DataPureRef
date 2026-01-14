@@ -36,7 +36,9 @@ export const InfiniteCanvas: React.FC = () => {
     objects,
     updateObjects,
     groupSelected,
-    ungroupObject
+    ungroupObject,
+    undo,
+    redo
   } = useCanvasStore();
 
   // Selection Box State
@@ -104,6 +106,21 @@ export const InfiniteCanvas: React.FC = () => {
         }
       }
 
+      // Undo / Redo
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+            redo();
+        } else {
+            undo();
+        }
+      }
+      
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+          e.preventDefault();
+          redo();
+      }
+
       // 'L' key to arrange selected objects horizontally
       if ((e.key === 'l' || e.key === 'L') && selectedObjectIds.length > 1) {
         // Filter out selected objects
@@ -147,7 +164,7 @@ export const InfiniteCanvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectIds, editingObjectId, removeObject, objects, updateObjects]);
+  }, [selectedObjectIds, editingObjectId, removeObject, objects, updateObjects, groupSelected, ungroupObject, undo, redo]);
 
   // Prevent default browser zoom and autoscroll (middle click)
   useEffect(() => {
