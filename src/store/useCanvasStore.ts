@@ -362,23 +362,30 @@ export const useCanvasStore = create<CanvasStore>()(
 
       loadCanvas: (loadedState) =>
         set((state) => {
-            // This is tricky with pages. Assume loadedState is just objects/viewport for current view?
-            // Or does loadCanvas replace EVERYTHING?
-            // Existing usage probably assumes replacing current view.
-            // Let's update active page.
-            
-            // If loadedState contains pages, use them.
-            // But typical usage was just objects/viewport.
-            
-            const newPages = state.pages.map(p => 
+            // Sync current active page state back to pages array
+            const updatedPages = state.pages.map(p => 
                 p.id === state.activePageId 
-                ? { ...p, objects: loadedState.objects, viewport: loadedState.viewport, updatedAt: Date.now() } 
+                ? { ...p, objects: state.objects, viewport: state.viewport, updatedAt: Date.now() } 
                 : p
             );
-            return {
+
+            // Create new page from loadedState
+            const newPageId = uuidv4();
+            const newPage: CanvasPage = {
+                id: newPageId,
+                name: `Imported Page ${state.pages.length + 1}`,
                 objects: loadedState.objects,
                 viewport: loadedState.viewport,
-                pages: newPages,
+                updatedAt: Date.now()
+            };
+
+            return {
+                pages: [...updatedPages, newPage],
+                activePageId: newPageId,
+                objects: newPage.objects,
+                viewport: newPage.viewport,
+                selectedObjectIds: [],
+                editingObjectId: null,
                 history: { past: [], future: [] }
             };
         }),

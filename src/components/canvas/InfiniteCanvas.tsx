@@ -38,7 +38,8 @@ export const InfiniteCanvas: React.FC = () => {
     groupSelected,
     ungroupObject,
     undo,
-    redo
+    redo,
+    loadCanvas
   } = useCanvasStore();
 
   // Selection Box State
@@ -48,6 +49,7 @@ export const InfiniteCanvas: React.FC = () => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
@@ -294,10 +296,46 @@ export const InfiniteCanvas: React.FC = () => {
     const { x, y } = screenToCanvas(mouseX, mouseY, viewport);
 
     const files = Array.from(e.dataTransfer.files);
-    let offset = 0;
-    for (const file of files) {
-      await processFile(file, x + offset, y + offset);
-      offset += 20; // Cascade
+    if (files.length === 0) return;
+
+    setIsLoading(true);
+    
+    try {
+        // Check for HTML export file first
+        const htmlFile = files.find(f => f.type === 'text/html' || f.name.endsWith('.html'));
+        if (htmlFile) {
+            try {
+                const text = await htmlFile.text();
+                // Look for the state object in the exported HTML
+                // Pattern: const state = {...}; followed by let { viewport } = state;
+                // We include the following line in the regex to ensure we don't stop early at a "};" inside a string
+                const match = text.match(/const state = ({[\s\S]*?});\s*let\s+\{\s*viewport\s*\}\s*=\s*state;/);
+                
+                if (match && match[1]) {
+                    const state = JSON.parse(match[1]);
+                    if (state.objects && state.viewport) {
+                        loadCanvas(state);
+                        return; // Stop processing other files
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to parse HTML export", err);
+            }
+            
+            alert('暂不支持非系统导出的文件');
+            return;
+        }
+
+        let offset = 0;
+        for (const file of files) {
+          // Skip if we already processed it as HTML (though we returned above, so this is just for safety/clarity)
+          if (file === htmlFile) continue;
+          
+          await processFile(file, x + offset, y + offset);
+          offset += 20; // Cascade
+        }
+    } finally {
+        setIsLoading(false);
     }
   };
 
@@ -558,6 +596,13 @@ export const InfiniteCanvas: React.FC = () => {
           y={contextMenu.y} 
           onClose={() => setContextMenu(null)} 
         />
+      )}
+
+      {/* Loading Spinner */}
+      {isLoading && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/50">
+          <div className="w-16 h-16 border-4 border-white/20 border-t-blue-500 rounded-full animate-spin" />
+        </div>
       )}
     </div>
   );
