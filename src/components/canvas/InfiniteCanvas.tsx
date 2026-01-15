@@ -309,9 +309,12 @@ export const InfiniteCanvas: React.FC = () => {
   };
 
   const getDroppedFiles = async (dataTransfer: DataTransfer): Promise<{ files: File[]; fromDirectory: boolean }> => {
+    // Capture files immediately as DataTransfer is volatile and may be cleared after await
+    const initialFiles = Array.from(dataTransfer.files);
     const items = Array.from(dataTransfer.items ?? []);
+
     if (items.length === 0) {
-      return { files: Array.from(dataTransfer.files), fromDirectory: false };
+      return { files: initialFiles, fromDirectory: false };
     }
 
     const collectFromDirectoryHandle = async (dirHandle: any): Promise<File[]> => {
@@ -394,7 +397,7 @@ export const InfiniteCanvas: React.FC = () => {
     }
 
     if (!fromDirectory) {
-      return { files: Array.from(dataTransfer.files), fromDirectory: false };
+      return { files: initialFiles, fromDirectory: false };
     }
 
     return { files: collected, fromDirectory: true };
