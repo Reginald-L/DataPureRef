@@ -32,6 +32,7 @@ interface CanvasStore {
   zoomCanvas: (scale: number) => void;
   
   addObject: (object: CanvasObject) => void;
+  addObjects: (objects: CanvasObject[]) => void;
   updateObject: (id: string, updates: Partial<CanvasObject>) => void;
   updateObjectTransient: (id: string, updates: Partial<CanvasObject>) => void;
   removeObject: (id: string) => void;
@@ -307,6 +308,24 @@ export const useCanvasStore = create<CanvasStore>()(
                     future: []
                 }
             };
+        }),
+
+      addObjects: (objectsToAdd) =>
+        set((state) => {
+          if (objectsToAdd.length === 0) return {};
+          const newObjects = [...state.objects, ...objectsToAdd];
+          const newPages = state.pages.map((p) =>
+            p.id === state.activePageId ? { ...p, objects: newObjects, updatedAt: Date.now() } : p
+          );
+          return {
+            objects: newObjects,
+            selectedObjectIds: [],
+            pages: newPages,
+            history: {
+              past: [...state.history.past, state.objects].slice(-50),
+              future: [],
+            },
+          };
         }),
 
       updateObject: (id, updates) =>

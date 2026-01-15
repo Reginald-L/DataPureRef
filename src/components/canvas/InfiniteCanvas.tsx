@@ -29,6 +29,7 @@ export const InfiniteCanvas: React.FC = () => {
     setViewport, 
     moveViewport, 
     addObject,
+    addObjects,
     removeObject,
     selectedObjectIds,
     selectObjects,
@@ -306,6 +307,171 @@ export const InfiniteCanvas: React.FC = () => {
     }
   };
 
+  const getDroppedFiles = async (dataTransfer: DataTransfer): Promise<{ files: File[]; fromDirectory: boolean }> => {
+    const items = Array.from(dataTransfer.items ?? []);
+    if (items.length === 0) {
+      return { files: Array.from(dataTransfer.files), fromDirectory: false };
+    }
+
+    const collectFromDirectoryHandle = async (dirHandle: any): Promise<File[]> => {
+      const collected: File[] = [];
+      for await (const handle of dirHandle.values()) {
+        if (handle.kind === 'file') {
+          collected.push(await handle.getFile());
+        } else if (handle.kind === 'directory') {
+          collected.push(...(await collectFromDirectoryHandle(handle)));
+        }
+      }
+      return collected;
+    };
+
+    const collectFromDirectoryEntry = async (dirEntry: any): Promise<File[]> => {
+      const reader = dirEntry.createReader();
+      const entries: any[] = [];
+      while (true) {
+        const batch = await new Promise<any[]>((resolve) => {
+          reader.readEntries(resolve, () => resolve([]));
+        });
+        if (batch.length === 0) break;
+        entries.push(...batch);
+      }
+
+      const collected: File[] = [];
+      for (const entry of entries) {
+        if (entry.isFile) {
+          const file = await new Promise<File | null>((resolve) => {
+            entry.file((f: File) => resolve(f), () => resolve(null));
+          });
+          if (file) collected.push(file);
+        } else if (entry.isDirectory) {
+          collected.push(...(await collectFromDirectoryEntry(entry)));
+        }
+      }
+      return collected;
+    };
+
+    const collected: File[] = [];
+    let fromDirectory = false;
+
+    for (const item of items) {
+      const anyItem = item as any;
+
+      if (typeof anyItem.getAsFileSystemHandle === 'function') {
+        try {
+          const handle = await anyItem.getAsFileSystemHandle();
+          if (handle?.kind === 'directory') {
+            fromDirectory = true;
+            collected.push(...(await collectFromDirectoryHandle(handle)));
+            continue;
+          }
+          if (handle?.kind === 'file') {
+            collected.push(await handle.getFile());
+            continue;
+          }
+        } catch {
+        }
+      }
+
+      if (typeof anyItem.webkitGetAsEntry === 'function') {
+        const entry = anyItem.webkitGetAsEntry();
+        if (entry?.isDirectory) {
+          fromDirectory = true;
+          collected.push(...(await collectFromDirectoryEntry(entry)));
+          continue;
+        }
+        if (entry?.isFile) {
+          const file = await new Promise<File | null>((resolve) => {
+            entry.file((f: File) => resolve(f), () => resolve(null));
+          });
+          if (file) collected.push(file);
+          continue;
+        }
+      }
+
+      const file = item.getAsFile();
+      if (file) collected.push(file);
+    }
+
+    if (!fromDirectory) {
+      return { files: Array.from(dataTransfer.files), fromDirectory: false };
+    }
+
+    return { files: collected, fromDirectory: true };
+  };
+
+  const importDirectoryMedia = async (files: File[], x: number, y: number) => {
+    const getBaseName = (name: string) => name.replace(/\.[^/.]+$/, '').toLowerCase();
+    const pairs = new Map<string, { video?: File; image?: File }>();
+
+    for (const file of files) {
+      const type = getFileType(file);
+      if (type !== 'video' && type !== 'image') continue;
+      const key = getBaseName(file.name);
+      const current = pairs.get(key) ?? {};
+      if (type === 'video' && !current.video) current.video = file;
+      if (type === 'image' && !current.image) current.image = file;
+      pairs.set(key, current);
+    }
+
+    if (pairs.size === 0) return;
+
+    const keys = Array.from(pairs.keys()).sort((a, b) => a.localeCompare(b));
+    const baseTime = Date.now();
+    const columnWidth = 420;
+    const rowGap = 20;
+    const videoSize = { width: 400, height: 300 };
+
+    const objectsToAdd: any[] = [];
+
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const pair = pairs.get(key);
+      if (!pair) continue;
+
+      const colX = x + i * columnWidth;
+
+      if (pair.video) {
+        const videoSrc = await readFileAsDataURL(pair.video);
+        objectsToAdd.push({
+          id: uuidv4(),
+          type: 'video',
+          position: { x: colX, y },
+          size: { ...videoSize },
+          zIndex: baseTime + i * 2,
+          createdAt: baseTime,
+          updatedAt: baseTime,
+          src: videoSrc,
+          currentTime: 0
+        });
+      }
+
+      if (pair.image) {
+        const imageSrc = await readFileAsDataURL(pair.image);
+        const img = new Image();
+        const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
+          img.onload = () => resolve({ width: img.width, height: img.height });
+          img.src = imageSrc;
+        });
+        const maxW = videoSize.width;
+        const maxH = videoSize.height;
+        const scale = Math.min(maxW / width, maxH / height, 1);
+        objectsToAdd.push({
+          id: uuidv4(),
+          type: 'image',
+          position: { x: colX, y: y + videoSize.height + rowGap },
+          size: { width: Math.round(width * scale), height: Math.round(height * scale) },
+          zIndex: baseTime + i * 2 + 1,
+          createdAt: baseTime,
+          updatedAt: baseTime,
+          src: imageSrc,
+          alt: pair.image.name
+        });
+      }
+    }
+
+    addObjects(objectsToAdd);
+  };
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const rect = containerRef.current?.getBoundingClientRect();
@@ -315,12 +481,18 @@ export const InfiniteCanvas: React.FC = () => {
     const mouseY = e.clientY - rect.top;
     const { x, y } = screenToCanvas(mouseX, mouseY, viewport);
 
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
-
     setIsLoading(true);
     
     try {
+        const dropped = await getDroppedFiles(e.dataTransfer);
+        const files = dropped.files;
+        if (files.length === 0) return;
+
+        if (dropped.fromDirectory) {
+          await importDirectoryMedia(files, x, y);
+          return;
+        }
+
         // Check for HTML export file first
         const htmlFile = files.find(f => f.type === 'text/html' || f.name.endsWith('.html'));
         if (htmlFile) {
