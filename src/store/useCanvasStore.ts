@@ -236,7 +236,7 @@ export const useCanvasStore = create<CanvasStore>()(
       }),
 
       renamePage: (pageId, name) => set((state) => ({
-        pages: state.pages.map(p => p.id === pageId ? { ...p, name } : p)
+        pages: state.pages.map(p => p.id === pageId ? { ...p, name, updatedAt: Date.now() } : p)
       })),
 
       setViewport: (viewport) => 

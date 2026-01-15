@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight } from 'lucide-react';
+import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight, Pencil } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { generateExportHtml } from '../../utils/export';
 
@@ -18,12 +18,15 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     addPage,
     switchPage,
     deletePage,
+    renamePage,
     selectedObjectIds,
     groupSelected,
     ungroupObject
   } = useCanvasStore();
 
   const [showPageSubmenu, setShowPageSubmenu] = useState(false);
+  const [renamingPageId, setRenamingPageId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState('');
 
   const handleExport = () => {
     const htmlContent = generateExportHtml(objects, viewport);
@@ -53,6 +56,19 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
   const handleDeletePage = (e: React.MouseEvent, pageId: string) => {
     e.stopPropagation();
     deletePage(pageId);
+  };
+
+  const handleStartRename = (e: React.MouseEvent, pageId: string, currentName: string) => {
+    e.stopPropagation();
+    setRenamingPageId(pageId);
+    setRenamingValue(currentName);
+  };
+
+  const commitRename = () => {
+    if (!renamingPageId) return;
+    const trimmed = renamingValue.trim();
+    renamePage(renamingPageId, trimmed || 'Untitled');
+    setRenamingPageId(null);
   };
 
   const handleGroup = () => {
@@ -120,18 +136,42 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
                     cursor-pointer transition-colors
                   `}
                 >
-                  <span className="text-sm truncate max-w-[120px]">{page.name}</span>
-                  
-                  {pages.length > 1 && activePageId !== page.id && (
-                    <button
-                      onClick={(e) => handleDeletePage(e, page.id)}
-                      className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity rounded"
-                      title="Delete Page"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                  {renamingPageId === page.id ? (
+                    <input
+                      autoFocus
+                      value={renamingValue}
+                      onChange={(e) => setRenamingValue(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRename();
+                        if (e.key === 'Escape') setRenamingPageId(null);
+                      }}
+                      onBlur={commitRename}
+                      className="text-sm w-[120px] bg-[#1f1f1f] text-gray-200 px-2 py-1 rounded border border-[#444] outline-none"
+                    />
+                  ) : (
+                    <span className="text-sm truncate max-w-[120px]">{page.name}</span>
                   )}
-                  {activePageId === page.id && <Check size={12} className="text-blue-400" />}
+                  
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => handleStartRename(e, page.id, page.name)}
+                      className="p-1 text-gray-500 hover:text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                      title="Rename Page"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    {pages.length > 1 && activePageId !== page.id && (
+                      <button
+                        onClick={(e) => handleDeletePage(e, page.id)}
+                        className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                        title="Delete Page"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                    {activePageId === page.id && <Check size={12} className="text-blue-400" />}
+                  </div>
                 </div>
               ))}
             </div>
