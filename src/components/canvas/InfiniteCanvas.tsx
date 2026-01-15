@@ -6,7 +6,7 @@ import { CanvasToolbar } from './CanvasToolbar';
 import { screenToCanvas, canvasToScreen } from '../../utils/coordinates';
 import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectRenderer } from './CanvasObjectRenderer';
-import { readFileAsDataURL, getFileType } from '../../utils/file';
+import { getFileType } from '../../utils/file';
 
 import { ContextMenu } from './ContextMenu';
 import { GroupToolbar } from './GroupToolbar';
@@ -270,7 +270,8 @@ export const InfiniteCanvas: React.FC = () => {
         return;
       }
 
-      const src = await readFileAsDataURL(file);
+      // Use ObjectURL instead of DataURL to save memory
+      const src = URL.createObjectURL(file);
 
       if (fileType === 'image') {
         // Load image to get dimensions
@@ -425,6 +426,8 @@ export const InfiniteCanvas: React.FC = () => {
     const textSize = { width: 420, height: 120 };
 
     const objectsToAdd: CanvasObject[] = [];
+    const BATCH_SIZE = 5; // Process in small batches to avoid OOM
+    let isFirstBatch = true;
 
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -433,64 +436,80 @@ export const InfiniteCanvas: React.FC = () => {
 
       const colX = x + i * columnWidth;
 
-      if (pair.video) {
-        const videoSrc = await readFileAsDataURL(pair.video);
-        objectsToAdd.push({
-          id: uuidv4(),
-          type: 'video',
-          position: { x: colX, y },
-          size: { ...videoSize },
-          zIndex: baseTime + i * 3,
-          createdAt: baseTime,
-          updatedAt: baseTime,
-          src: videoSrc,
-          currentTime: 0
-        });
+      try {
+        if (pair.video) {
+          // Use ObjectURL instead of DataURL to save memory
+          const videoSrc = URL.createObjectURL(pair.video);
+          objectsToAdd.push({
+            id: uuidv4(),
+            type: 'video',
+            position: { x: colX, y },
+            size: { ...videoSize },
+            zIndex: baseTime + i * 3,
+            createdAt: baseTime,
+            updatedAt: baseTime,
+            src: videoSrc,
+            currentTime: 0
+          });
+        }
+
+        if (pair.image) {
+          // Use ObjectURL instead of DataURL to save memory
+          const imageSrc = URL.createObjectURL(pair.image);
+          const img = new Image();
+          const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
+            img.onload = () => resolve({ width: img.width, height: img.height });
+            img.src = imageSrc;
+          });
+          const maxW = videoSize.width;
+          const maxH = videoSize.height;
+          const scale = Math.min(maxW / width, maxH / height, 1);
+          objectsToAdd.push({
+            id: uuidv4(),
+            type: 'image',
+            position: { x: colX, y: y + videoSize.height + rowGap },
+            size: { width: Math.round(width * scale), height: Math.round(height * scale) },
+            zIndex: baseTime + i * 3 + 1,
+            createdAt: baseTime,
+            updatedAt: baseTime,
+            src: imageSrc,
+            alt: pair.image.name
+          });
+        }
+
+        if (pair.text) {
+          const text = await pair.text.text();
+          objectsToAdd.push({
+            id: uuidv4(),
+            type: 'text',
+            position: { x: colX, y: y + videoSize.height + rowGap + imageSlotHeight + rowGap },
+            size: { ...textSize },
+            zIndex: baseTime + i * 3 + 2,
+            createdAt: baseTime,
+            updatedAt: baseTime,
+            content: text,
+            fontSize: 16,
+            fontWeight: 'normal',
+            fontStyle: 'normal',
+            color: '#ffffff'
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to process file pair ${key}:`, err);
+        continue;
       }
 
-      if (pair.image) {
-        const imageSrc = await readFileAsDataURL(pair.image);
-        const img = new Image();
-        const { width, height } = await new Promise<{ width: number; height: number }>((resolve) => {
-          img.onload = () => resolve({ width: img.width, height: img.height });
-          img.src = imageSrc;
-        });
-        const maxW = videoSize.width;
-        const maxH = videoSize.height;
-        const scale = Math.min(maxW / width, maxH / height, 1);
-        objectsToAdd.push({
-          id: uuidv4(),
-          type: 'image',
-          position: { x: colX, y: y + videoSize.height + rowGap },
-          size: { width: Math.round(width * scale), height: Math.round(height * scale) },
-          zIndex: baseTime + i * 3 + 1,
-          createdAt: baseTime,
-          updatedAt: baseTime,
-          src: imageSrc,
-          alt: pair.image.name
-        });
-      }
-
-      if (pair.text) {
-        const text = await pair.text.text();
-        objectsToAdd.push({
-          id: uuidv4(),
-          type: 'text',
-          position: { x: colX, y: y + videoSize.height + rowGap + imageSlotHeight + rowGap },
-          size: { ...textSize },
-          zIndex: baseTime + i * 3 + 2,
-          createdAt: baseTime,
-          updatedAt: baseTime,
-          content: text,
-          fontSize: 16,
-          fontWeight: 'normal',
-          fontStyle: 'normal',
-          color: '#ffffff'
-        });
+      // Dispatch batch if full or last item
+      if (objectsToAdd.length >= BATCH_SIZE || i === keys.length - 1) {
+        if (objectsToAdd.length > 0) {
+          addObjects([...objectsToAdd], !isFirstBatch); // Only save history for the first batch
+          isFirstBatch = false;
+          objectsToAdd.length = 0; // Clear array
+          // Give UI a chance to update and GC to run
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
       }
     }
-
-    addObjects(objectsToAdd);
   };
 
   const handleDrop = async (e: React.DragEvent) => {

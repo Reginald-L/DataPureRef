@@ -31,8 +31,8 @@ interface CanvasStore {
   moveViewport: (deltaX: number, deltaY: number) => void;
   zoomCanvas: (scale: number) => void;
   
-  addObject: (object: CanvasObject) => void;
-  addObjects: (objects: CanvasObject[]) => void;
+  addObject: (object: CanvasObject, skipHistory?: boolean) => void;
+  addObjects: (objects: CanvasObject[], skipHistory?: boolean) => void;
   updateObject: (id: string, updates: Partial<CanvasObject>) => void;
   updateObjectTransient: (id: string, updates: Partial<CanvasObject>) => void;
   removeObject: (id: string) => void;
@@ -291,7 +291,7 @@ export const useCanvasStore = create<CanvasStore>()(
           };
         }),
 
-      addObject: (object) =>
+      addObject: (object, skipHistory = false) =>
         set((state) => {
             const newObjects = [...state.objects, object];
             const newPages = state.pages.map(p => 
@@ -303,14 +303,14 @@ export const useCanvasStore = create<CanvasStore>()(
                 objects: newObjects,
                 selectedObjectIds: [object.id], // Select new object,
                 pages: newPages,
-                history: {
+                history: skipHistory ? state.history : {
                     past: [...state.history.past, state.objects].slice(-50),
                     future: []
                 }
             };
         }),
 
-      addObjects: (objectsToAdd) =>
+      addObjects: (objectsToAdd, skipHistory = false) =>
         set((state) => {
           if (objectsToAdd.length === 0) return {};
           const newObjects = [...state.objects, ...objectsToAdd];
@@ -321,7 +321,7 @@ export const useCanvasStore = create<CanvasStore>()(
             objects: newObjects,
             selectedObjectIds: [],
             pages: newPages,
-            history: {
+            history: skipHistory ? state.history : {
               past: [...state.history.past, state.objects].slice(-50),
               future: [],
             },
