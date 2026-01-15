@@ -7,8 +7,10 @@ export const readFileAsDataURL = (file: File): Promise<string> => {
   });
 };
 
-export const getFileType = (file: File): 'image' | 'video' | null => {
+export const getFileType = (file: File): 'image' | 'video' | 'text' | null => {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
+  if (file.type === 'text/plain') return 'text';
+  if (file.name.toLowerCase().endsWith('.txt')) return 'text';
   return null;
 };

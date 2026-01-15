@@ -247,10 +247,30 @@ export const InfiniteCanvas: React.FC = () => {
     if (!fileType) return;
 
     try {
-      const src = await readFileAsDataURL(file);
       const id = uuidv4();
       const zIndex = Date.now();
       
+      if (fileType === 'text') {
+        const text = await file.text();
+        addObject({
+          id,
+          type: 'text',
+          position: { x, y },
+          size: { width: 420, height: 100 },
+          zIndex,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          content: text,
+          fontSize: 16,
+          fontWeight: 'normal',
+          fontStyle: 'normal',
+          color: '#ffffff'
+        });
+        return;
+      }
+
+      const src = await readFileAsDataURL(file);
+
       if (fileType === 'image') {
         // Load image to get dimensions
         const img = new Image();
