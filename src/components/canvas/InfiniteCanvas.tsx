@@ -401,15 +401,16 @@ export const InfiniteCanvas: React.FC = () => {
 
   const importDirectoryMedia = async (files: File[], x: number, y: number) => {
     const getBaseName = (name: string) => name.replace(/\.[^/.]+$/, '').toLowerCase();
-    const pairs = new Map<string, { video?: File; image?: File }>();
+    const pairs = new Map<string, { video?: File; image?: File; text?: File }>();
 
     for (const file of files) {
       const type = getFileType(file);
-      if (type !== 'video' && type !== 'image') continue;
+      if (type !== 'video' && type !== 'image' && type !== 'text') continue;
       const key = getBaseName(file.name);
       const current = pairs.get(key) ?? {};
       if (type === 'video' && !current.video) current.video = file;
       if (type === 'image' && !current.image) current.image = file;
+      if (type === 'text' && !current.text) current.text = file;
       pairs.set(key, current);
     }
 
@@ -420,8 +421,10 @@ export const InfiniteCanvas: React.FC = () => {
     const columnWidth = 420;
     const rowGap = 20;
     const videoSize = { width: 400, height: 300 };
+    const imageSlotHeight = 300;
+    const textSize = { width: 420, height: 120 };
 
-    const objectsToAdd: any[] = [];
+    const objectsToAdd: CanvasObject[] = [];
 
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -437,7 +440,7 @@ export const InfiniteCanvas: React.FC = () => {
           type: 'video',
           position: { x: colX, y },
           size: { ...videoSize },
-          zIndex: baseTime + i * 2,
+          zIndex: baseTime + i * 3,
           createdAt: baseTime,
           updatedAt: baseTime,
           src: videoSrc,
@@ -460,11 +463,29 @@ export const InfiniteCanvas: React.FC = () => {
           type: 'image',
           position: { x: colX, y: y + videoSize.height + rowGap },
           size: { width: Math.round(width * scale), height: Math.round(height * scale) },
-          zIndex: baseTime + i * 2 + 1,
+          zIndex: baseTime + i * 3 + 1,
           createdAt: baseTime,
           updatedAt: baseTime,
           src: imageSrc,
           alt: pair.image.name
+        });
+      }
+
+      if (pair.text) {
+        const text = await pair.text.text();
+        objectsToAdd.push({
+          id: uuidv4(),
+          type: 'text',
+          position: { x: colX, y: y + videoSize.height + rowGap + imageSlotHeight + rowGap },
+          size: { ...textSize },
+          zIndex: baseTime + i * 3 + 2,
+          createdAt: baseTime,
+          updatedAt: baseTime,
+          content: text,
+          fontSize: 16,
+          fontWeight: 'normal',
+          fontStyle: 'normal',
+          color: '#ffffff'
         });
       }
     }
