@@ -345,6 +345,8 @@ export const InfiniteCanvas: React.FC = () => {
 
   const isDraggingRef = useRef(false);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
+  const panRafRef = useRef<number | null>(null);
+  const panPendingRef = useRef({ dx: 0, dy: 0 });
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const rect = containerRef.current?.getBoundingClientRect();
@@ -395,8 +397,20 @@ export const InfiniteCanvas: React.FC = () => {
       e.preventDefault();
       const dx = e.clientX - lastMousePosRef.current.x;
       const dy = e.clientY - lastMousePosRef.current.y;
-      moveViewport(dx, dy);
+      panPendingRef.current.dx += dx;
+      panPendingRef.current.dy += dy;
       lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+
+      if (panRafRef.current == null) {
+        panRafRef.current = requestAnimationFrame(() => {
+          panRafRef.current = null;
+          const { dx: pdx, dy: pdy } = panPendingRef.current;
+          panPendingRef.current = { dx: 0, dy: 0 };
+          if (pdx !== 0 || pdy !== 0) {
+            moveViewport(pdx, pdy);
+          }
+        });
+      }
     }
   };
 
@@ -467,6 +481,15 @@ export const InfiniteCanvas: React.FC = () => {
 
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
+      if (panRafRef.current != null) {
+        cancelAnimationFrame(panRafRef.current);
+        panRafRef.current = null;
+      }
+      const { dx: pdx, dy: pdy } = panPendingRef.current;
+      panPendingRef.current = { dx: 0, dy: 0 };
+      if (pdx !== 0 || pdy !== 0) {
+        moveViewport(pdx, pdy);
+      }
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     }
   };

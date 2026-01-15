@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import { CanvasObject, Viewport, GroupObject, CanvasPage } from '../types/canvas';
 import { openDB } from 'idb';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,6 +17,7 @@ interface CanvasStore {
     future: CanvasObject[][];
   };
 
+  pushHistorySnapshot: () => void;
   undo: () => void;
   redo: () => void;
   
@@ -32,6 +33,7 @@ interface CanvasStore {
   
   addObject: (object: CanvasObject) => void;
   updateObject: (id: string, updates: Partial<CanvasObject>) => void;
+  updateObjectTransient: (id: string, updates: Partial<CanvasObject>) => void;
   removeObject: (id: string) => void;
   selectObject: (id: string | null) => void;
   selectObjects: (ids: string[]) => void;
@@ -40,48 +42,51 @@ interface CanvasStore {
   loadCanvas: (state: { objects: CanvasObject[]; viewport: Viewport }) => void;
   
   updateObjects: (updates: { id: string; changes: Partial<CanvasObject> }[]) => void;
+  updateObjectsTransient: (updates: { id: string; changes: Partial<CanvasObject> }[]) => void;
+  moveObjectsByDelta: (ids: string[], dx: number, dy: number) => void;
   
   groupSelected: () => void;
   ungroupObject: (id: string) => void;
   alignGroupChildren: (groupId: string, alignment: 'left' | 'center' | 'right') => void;
 }
 
-// Debounce helper
-const debounce = (fn: Function, ms: number) => {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  return function (this: any, ...args: any[]) {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn.apply(this, args), ms);
-  };
-};
+const dbPromise = openDB('canvas-db', 1, {
+  upgrade(db) {
+    db.createObjectStore('store');
+  },
+});
 
-// Custom storage using IndexedDB for handling large base64 strings
-const idbStorage = {
-  getItem: async (name: string): Promise<string | null> => {
-    const db = await openDB('canvas-db', 1, {
-      upgrade(db) {
-        db.createObjectStore('store');
-      },
-    });
-    return (await db.get('store', name)) || null;
-  },
-  setItem: debounce(async (name: string, value: string): Promise<void> => {
-    const db = await openDB('canvas-db', 1, {
-      upgrade(db) {
-        db.createObjectStore('store');
-      },
-    });
-    await db.put('store', value, name);
-  }, 1000), // Debounce writes by 1 second
-  removeItem: async (name: string): Promise<void> => {
-    const db = await openDB('canvas-db', 1, {
-      upgrade(db) {
-        db.createObjectStore('store');
-      },
-    });
-    await db.delete('store', name);
-  },
-};
+const persistStorage = (() => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let lastName: string | null = null;
+  let lastValue: any = null;
+
+  const flush = async () => {
+    if (!lastName) return;
+    const db = await dbPromise;
+    await db.put('store', JSON.stringify(lastValue), lastName);
+  };
+
+  return {
+    getItem: async (name: string): Promise<any | null> => {
+      const db = await dbPromise;
+      const raw = (await db.get('store', name)) || null;
+      return raw ? JSON.parse(raw) : null;
+    },
+    setItem: (name: string, value: any): void => {
+      lastName = name;
+      lastValue = value;
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        flush();
+      }, 1000);
+    },
+    removeItem: async (name: string): Promise<void> => {
+      const db = await dbPromise;
+      await db.delete('store', name);
+    },
+  };
+})();
 
 export const useCanvasStore = create<CanvasStore>()(
   persist(
@@ -93,6 +98,14 @@ export const useCanvasStore = create<CanvasStore>()(
       selectedObjectIds: [],
       editingObjectId: null,
       history: { past: [], future: [] },
+
+      pushHistorySnapshot: () =>
+        set((state) => ({
+          history: {
+            past: [...state.history.past, state.objects].slice(-50),
+            future: [],
+          },
+        })),
 
       undo: () => set((state) => {
         const { past, future } = state.history;
@@ -316,6 +329,20 @@ export const useCanvasStore = create<CanvasStore>()(
             };
         }),
 
+      updateObjectTransient: (id, updates) =>
+        set((state) => {
+          const newObjects = state.objects.map((obj) =>
+            obj.id === id ? ({ ...obj, ...updates, updatedAt: Date.now() } as CanvasObject) : obj
+          );
+          const newPages = state.pages.map((p) =>
+            p.id === state.activePageId ? { ...p, objects: newObjects, updatedAt: Date.now() } : p
+          );
+          return {
+            objects: newObjects,
+            pages: newPages,
+          };
+        }),
+
       removeObject: (id) =>
         set((state) => {
             const newObjects = state.objects.filter((obj) => obj.id !== id);
@@ -414,6 +441,48 @@ export const useCanvasStore = create<CanvasStore>()(
                 past: [...state.history.past, state.objects].slice(-50),
                 future: []
             }
+          };
+        }),
+
+      updateObjectsTransient: (updates) =>
+        set((state) => {
+          const updateMap = new Map(updates.map((u) => [u.id, u.changes]));
+          const newObjects = state.objects.map((obj) => {
+            const changes = updateMap.get(obj.id);
+            if (!changes) return obj;
+            return { ...obj, ...changes, updatedAt: Date.now() } as CanvasObject;
+          });
+
+          const newPages = state.pages.map((p) =>
+            p.id === state.activePageId ? { ...p, objects: newObjects, updatedAt: Date.now() } : p
+          );
+
+          return {
+            objects: newObjects,
+            pages: newPages,
+          };
+        }),
+
+      moveObjectsByDelta: (ids, dx, dy) =>
+        set((state) => {
+          if (ids.length === 0) return {};
+          const idSet = new Set(ids);
+          const newObjects = state.objects.map((obj) => {
+            if (!idSet.has(obj.id)) return obj;
+            return {
+              ...obj,
+              position: { x: obj.position.x + dx, y: obj.position.y + dy },
+              updatedAt: Date.now(),
+            } as CanvasObject;
+          });
+
+          const newPages = state.pages.map((p) =>
+            p.id === state.activePageId ? { ...p, objects: newObjects, updatedAt: Date.now() } : p
+          );
+
+          return {
+            objects: newObjects,
+            pages: newPages,
           };
         }),
 
@@ -550,7 +619,7 @@ export const useCanvasStore = create<CanvasStore>()(
     }),
     {
       name: 'canvas-storage',
-      storage: createJSONStorage(() => idbStorage),
+      storage: persistStorage as any,
       partialize: (state) => ({ 
         objects: state.objects, 
         viewport: state.viewport,

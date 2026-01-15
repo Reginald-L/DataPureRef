@@ -10,15 +10,15 @@ import { cn } from '../../lib/utils';
 
 interface ResizeHandleProps {
   cursor: string;
-  onResize: (delta: [number, number]) => void;
+  onResize: (delta: [number, number], isFirst: boolean) => void;
   className?: string;
 }
 
 const ResizeHandle: React.FC<ResizeHandleProps> = ({ cursor, onResize, className }) => {
   const bind = useGesture({
-    onDrag: ({ delta, event }) => {
+    onDrag: ({ delta, event, first }) => {
       event.stopPropagation();
-      onResize(delta);
+      onResize(delta, first);
     },
   }, {
     drag: {
@@ -52,11 +52,19 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
   const isEditing = useCanvasStore((state) => state.editingObjectId === object.id);
   
   const updateObject = useCanvasStore((state) => state.updateObject);
-  const updateObjects = useCanvasStore((state) => state.updateObjects);
+  const updateObjectTransient = useCanvasStore((state) => state.updateObjectTransient);
+  const moveObjectsByDelta = useCanvasStore((state) => state.moveObjectsByDelta);
   const removeObject = useCanvasStore((state) => state.removeObject);
   const selectObject = useCanvasStore((state) => state.selectObject);
   const toggleObjectSelection = useCanvasStore((state) => state.toggleObjectSelection);
   const setEditingObjectId = useCanvasStore((state) => state.setEditingObjectId);
+  const pushHistorySnapshot = useCanvasStore((state) => state.pushHistorySnapshot);
+
+  const dragStateRef = React.useRef<{
+    rafId: number | null;
+    pending: { dx: number; dy: number };
+    ids: string[];
+  }>({ rafId: null, pending: { dx: 0, dy: 0 }, ids: [] });
 
   const handleFinishEdit = () => {
     setEditingObjectId(null);
@@ -70,7 +78,7 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
 
   const bind = useGesture(
     {
-      onDrag: ({ delta: [dx, dy], event, first, buttons, shiftKey }) => {
+      onDrag: ({ delta: [dx, dy], event, first, last, buttons, shiftKey }) => {
         // Only handle Left Click (buttons === 1) for moving objects
         if (buttons === 1) {
           // Stop propagation so canvas doesn't pan
@@ -90,41 +98,42 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
                     selectObject(object.id);
                 }
             }
+            pushHistorySnapshot();
+
+            const afterSelect = useCanvasStore.getState().selectedObjectIds;
+            dragStateRef.current.ids = afterSelect.includes(object.id) ? afterSelect : [object.id];
           }
 
           // Access viewport zoom directly from store state to avoid subscription
-          const { viewport, selectedObjectIds, objects } = useCanvasStore.getState();
+          const { viewport } = useCanvasStore.getState();
           const zoom = viewport.zoom;
           const deltaX = dx / zoom;
           const deltaY = dy / zoom;
 
-          // If current object is selected, move all selected objects
-          if (selectedObjectIds.includes(object.id)) {
-            const updates = selectedObjectIds.map(id => {
-                const obj = objects.find(o => o.id === id);
-                if (obj) {
-                    return {
-                        id,
-                        changes: {
-                            position: {
-                                x: obj.position.x + deltaX,
-                                y: obj.position.y + deltaY
-                            }
-                        }
-                    };
-                }
-                return null;
-            }).filter(Boolean) as { id: string; changes: Partial<CanvasObject> }[];
-            
-            updateObjects(updates);
-          } else {
-            // Fallback for single object move (should be covered above, but safe to keep)
-            updateObject(object.id, {
-                position: {
-                  x: object.position.x + deltaX,
-                  y: object.position.y + deltaY
-                }
-              });
+          dragStateRef.current.pending.dx += deltaX;
+          dragStateRef.current.pending.dy += deltaY;
+
+          if (dragStateRef.current.rafId == null) {
+            dragStateRef.current.rafId = requestAnimationFrame(() => {
+              dragStateRef.current.rafId = null;
+              const { dx, dy } = dragStateRef.current.pending;
+              dragStateRef.current.pending = { dx: 0, dy: 0 };
+              if (dx === 0 && dy === 0) return;
+              moveObjectsByDelta(dragStateRef.current.ids, dx, dy);
+            });
+          }
+
+          if (last) {
+            if (dragStateRef.current.rafId != null) {
+              cancelAnimationFrame(dragStateRef.current.rafId);
+              dragStateRef.current.rafId = null;
+            }
+            const { dx: pdx, dy: pdy } = dragStateRef.current.pending;
+            dragStateRef.current.pending = { dx: 0, dy: 0 };
+            if (pdx !== 0 || pdy !== 0) {
+              moveObjectsByDelta(dragStateRef.current.ids, pdx, pdy);
+            }
+            dragStateRef.current.ids = [];
           }
         }
       }
@@ -140,7 +149,7 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
   // Extract onPointerDown to handle stopPropagation
   const { onPointerDown, ...restGestures } = gestures;
 
-  const handleResize = (delta: [number, number], direction: { x: -1 | 0 | 1, y: -1 | 0 | 1 }) => {
+  const handleResize = (delta: [number, number], isFirst: boolean, direction: { x: -1 | 0 | 1, y: -1 | 0 | 1 }) => {
     const zoom = useCanvasStore.getState().viewport.zoom;
     const dx = delta[0] / zoom;
     const dy = delta[1] / zoom;
@@ -172,7 +181,11 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
       newHeight = h;
     }
 
-    updateObject(object.id, {
+    if (isFirst) {
+      pushHistorySnapshot();
+    }
+
+    updateObjectTransient(object.id, {
       size: { width: newWidth, height: newHeight },
       position: { x: newX, y: newY }
     });
@@ -189,7 +202,7 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
           <TextRenderer 
             object={object as any} 
             isEditing={isEditing}
-            onUpdate={(updates) => updateObject(object.id, updates)}
+            onUpdate={(updates) => updateObjectTransient(object.id, updates)}
             onFinishEdit={handleFinishEdit}
           />
         );
@@ -218,6 +231,7 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (object.type === 'text') {
+          pushHistorySnapshot();
           setEditingObjectId(object.id);
         } else if (object.type === 'image') {
           // Reset image to original size
@@ -253,25 +267,25 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
           <ResizeHandle 
             cursor="nw-resize" 
             className="-top-1.5 -left-1.5"
-            onResize={(delta) => handleResize(delta, { x: -1, y: -1 })}
+            onResize={(delta, isFirst) => handleResize(delta, isFirst, { x: -1, y: -1 })}
           />
           {/* Top Right */}
           <ResizeHandle 
             cursor="ne-resize" 
             className="-top-1.5 -right-1.5"
-            onResize={(delta) => handleResize(delta, { x: 1, y: -1 })}
+            onResize={(delta, isFirst) => handleResize(delta, isFirst, { x: 1, y: -1 })}
           />
           {/* Bottom Left */}
           <ResizeHandle 
             cursor="sw-resize" 
             className="-bottom-1.5 -left-1.5"
-            onResize={(delta) => handleResize(delta, { x: -1, y: 1 })}
+            onResize={(delta, isFirst) => handleResize(delta, isFirst, { x: -1, y: 1 })}
           />
           {/* Bottom Right */}
           <ResizeHandle 
             cursor="se-resize" 
             className="-bottom-1.5 -right-1.5"
-            onResize={(delta) => handleResize(delta, { x: 1, y: 1 })}
+            onResize={(delta, isFirst) => handleResize(delta, isFirst, { x: 1, y: 1 })}
           />
         </>
       )}
