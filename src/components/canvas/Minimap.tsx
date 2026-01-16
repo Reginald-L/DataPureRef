@@ -2,18 +2,21 @@ import React, { useEffect, useRef } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { X } from 'lucide-react';
 
-const MINIMAP_WIDTH = 240;
-const MINIMAP_HEIGHT = 160;
-const PADDING = 40;
+const MINIMAP_WIDTH = 300;
+const MINIMAP_HEIGHT = 200;
+const PADDING = 10;
+const MIN_OBJECT_SIZE = 6;
+const MIN_VIEWPORT_SIZE = 20;
 
 export const Minimap: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { objects, viewport, zoomCanvas, setViewport, isMinimapVisible, toggleMinimap } = useCanvasStore();
   const isDragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
 
   // Helper to get transformation parameters
   const getTransformParams = () => {
-    // 1. Calculate World Bounds (Objects + Viewport)
+    // 1. Calculate World Bounds (Objects Only)
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     if (objects.length === 0) {
@@ -34,11 +37,8 @@ export const Minimap: React.FC = () => {
     const vw = window.innerWidth / viewport.zoom;
     const vh = window.innerHeight / viewport.zoom;
 
-    // Expand bounds to include viewport
-    minX = Math.min(minX, vx);
-    minY = Math.min(minY, vy);
-    maxX = Math.max(maxX, vx + vw);
-    maxY = Math.max(maxY, vh);
+    // Do NOT expand bounds to include viewport. 
+    // This ensures objects are always maximized in the minimap.
 
     // Add padding
     const worldW = maxX - minX + PADDING * 2;
@@ -75,36 +75,43 @@ export const Minimap: React.FC = () => {
     });
 
     // 2. Draw Objects
-    ctx.fillStyle = '#3b82f6'; // Blue-500
+    ctx.fillStyle = '#60a5fa'; // Blue-400 (Brighter)
     objects.forEach(obj => {
       const pos = toMinimap(obj.position.x, obj.position.y);
-      ctx.fillRect(
-        pos.x, 
-        pos.y, 
-        obj.size.width * scale, 
-        obj.size.height * scale
-      );
+      const realW = obj.size.width * scale;
+      const realH = obj.size.height * scale;
+      
+      // Ensure objects are at least visible (MIN_OBJECT_SIZE)
+      // Center the enlarged object representation
+      const w = Math.max(MIN_OBJECT_SIZE, realW);
+      const h = Math.max(MIN_OBJECT_SIZE, realH);
+      
+      const x = pos.x - (w - realW) / 2;
+      const y = pos.y - (h - realH) / 2;
+      
+      ctx.fillRect(x, y, w, h);
     });
 
     // 3. Draw Viewport Rect
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3; // Thicker border
     const vPos = toMinimap(vx, vy);
-    ctx.strokeRect(
-      vPos.x,
-      vPos.y,
-      vw * scale,
-      vh * scale
-    );
+    const realVW = vw * scale;
+    const realVH = vh * scale;
+    
+    // Ensure viewport is at least visible (MIN_VIEWPORT_SIZE)
+    // Center the enlarged viewport representation
+    const drawVW = Math.max(MIN_VIEWPORT_SIZE, realVW);
+    const drawVH = Math.max(MIN_VIEWPORT_SIZE, realVH);
+    
+    const drawVX = vPos.x - (drawVW - realVW) / 2;
+    const drawVY = vPos.y - (drawVH - realVH) / 2;
+    
+    ctx.strokeRect(drawVX, drawVY, drawVW, drawVH);
     
     // Fill viewport slightly
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.fillRect(
-      vPos.x,
-      vPos.y,
-      vw * scale,
-      vh * scale
-    );
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'; // More visible fill
+    ctx.fillRect(drawVX, drawVY, drawVW, drawVH);
   };
 
   useEffect(() => {
@@ -133,35 +140,43 @@ export const Minimap: React.FC = () => {
     });
 
     const vPos = toMinimap(vx, vy);
-    const vWidth = vw * scale;
-    const vHeight = vh * scale;
+    const realVW = vw * scale;
+    const realVH = vh * scale;
 
-    // Check if clicked inside viewport rect
-    if (mx >= vPos.x && mx <= vPos.x + vWidth && my >= vPos.y && my <= vPos.y + vHeight) {
+    const drawVW = Math.max(MIN_VIEWPORT_SIZE, realVW);
+    const drawVH = Math.max(MIN_VIEWPORT_SIZE, realVH);
+    const drawVX = vPos.x - (drawVW - realVW) / 2;
+    const drawVY = vPos.y - (drawVH - realVH) / 2;
+
+    // Check if clicked inside viewport rect (using the enlarged visual rect)
+    if (mx >= drawVX && mx <= drawVX + drawVW && my >= drawVY && my <= drawVY + drawVH) {
         isDragging.current = true;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        
+        // Calculate drag offset relative to the ACTUAL center of the viewport
+        const vCenterX = vPos.x + realVW / 2;
+        const vCenterY = vPos.y + realVH / 2;
+        
+        dragOffset.current = {
+            x: vCenterX - mx,
+            y: vCenterY - my
+        };
     } else {
         // Clicked outside: Jump to position
-        // Calculate new center in world space
-        // Inverse of toMinimap:
-        // x_mm = (x_world - originX) * scale + offsetX
-        // x_world = (x_mm - offsetX) / scale + originX
-        
+        // New center is mouse position
         const worldX = (mx - offsetX) / scale + originX;
         const worldY = (my - offsetY) / scale + originY;
-        
-        // Center viewport on this point
-        // New viewport x (transform) = -(worldX - windowWidth/2/zoom) * zoom
-        // = -worldX * zoom + windowWidth/2
         
         const newViewportX = -worldX * viewport.zoom + window.innerWidth / 2;
         const newViewportY = -worldY * viewport.zoom + window.innerHeight / 2;
         
         setViewport({ x: newViewportX, y: newViewportY });
         
-        // Also start dragging immediately for smoothness
         isDragging.current = true;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        
+        // Offset is 0 because we just centered on mouse
+        dragOffset.current = { x: 0, y: 0 };
     }
   };
 
@@ -177,9 +192,13 @@ export const Minimap: React.FC = () => {
     
     const { originX, originY, scale, offsetX, offsetY } = getTransformParams();
 
-    // Calculate world position under mouse (this should be the new center)
-    const worldX = (mx - offsetX) / scale + originX;
-    const worldY = (my - offsetY) / scale + originY;
+    // Target Center in Minimap Space
+    const targetCenterX = mx + dragOffset.current.x;
+    const targetCenterY = my + dragOffset.current.y;
+
+    // Calculate world position for this center
+    const worldX = (targetCenterX - offsetX) / scale + originX;
+    const worldY = (targetCenterY - offsetY) / scale + originY;
 
     // Center viewport on this point
     const newViewportX = -worldX * viewport.zoom + window.innerWidth / 2;

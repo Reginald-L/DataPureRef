@@ -280,26 +280,171 @@ export const InfiniteCanvas: React.FC = () => {
     };
   }, []);
 
-  // Handle Paste
+  // Handle Copy and Paste
   useEffect(() => {
-    const handlePaste = async (e: ClipboardEvent) => {
-      if (!e.clipboardData) return;
-      
-      // If we are editing a text object (focused textarea), let default paste happen
+    const handleCopy = async (e: ClipboardEvent) => {
+      // Don't copy if editing text
       if (document.activeElement instanceof HTMLTextAreaElement || document.activeElement instanceof HTMLInputElement) {
         return;
       }
 
-      const items = e.clipboardData.items;
+      if (selectedObjectIds.length === 0) return;
+
+      e.preventDefault();
+
+      const selectedObjects = objects.filter(obj => selectedObjectIds.includes(obj.id));
+      if (selectedObjects.length === 0) return;
+
+      // Prepare Internal JSON Data
+      const internalData = JSON.stringify(selectedObjects);
+      
+      // Try to construct ClipboardItems
+      const clipboardItems: Record<string, Blob> = {};
+
+      // 1. Add Internal JSON as a special text/html meta tag (Robust cross-platform way)
+      // We wrap it in a hidden div with a data attribute
+      const htmlContent = `<meta name="datapureref-json" content='${internalData.replace(/'/g, "&apos;")}' />
+                           <!-- DataPureRef Content -->
+                           <div data-pureref-json="true" style="display:none;">${internalData}</div>`;
+      
+      clipboardItems['text/html'] = new Blob([htmlContent], { type: 'text/html' });
+
+      // 2. Add Plain Text representation
+      let plainText = '';
+      if (selectedObjects.length === 1) {
+        const obj = selectedObjects[0];
+        if (obj.type === 'text') plainText = obj.content || '';
+        else if (obj.type === 'image') plainText = obj.alt || 'Image';
+        else if (obj.type === 'video') plainText = 'Video';
+      } else {
+        plainText = `[${selectedObjects.length} Objects]`;
+      }
+      clipboardItems['text/plain'] = new Blob([plainText], { type: 'text/plain' });
+
+      // 3. Add Image Data if single image selected
+      if (selectedObjects.length === 1 && selectedObjects[0].type === 'image') {
+        const obj = selectedObjects[0] as any;
+        if (obj.fileId) {
+          try {
+             const blob = await getFile(obj.fileId);
+             if (blob && blob.type === 'image/png') {
+               clipboardItems['image/png'] = blob;
+             } else if (blob && blob.type === 'image/jpeg') {
+               // Browsers often only support PNG writing. Conversion might be needed but skipping for now.
+               // Actually some support JPEG. Let's try.
+                // clipboardItems['image/jpeg'] = blob; 
+                // Safari/Chrome support png/html/text. Jpeg support is varying.
+                // Safer to convert to PNG? Too slow here.
+             }
+          } catch (err) {
+            console.error('Failed to load image for clipboard', err);
+          }
+        }
+      }
+
+      try {
+        await navigator.clipboard.write([new ClipboardItem(clipboardItems)]);
+      } catch (err) {
+        console.warn('Clipboard write failed (likely unsupported types), falling back to text', err);
+        // Fallback: Just write text
+        e.clipboardData?.setData('text/plain', plainText);
+        e.clipboardData?.setData('text/html', htmlContent);
+      }
+    };
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      // If we are editing a text object (focused textarea), let default paste happen
+      if (document.activeElement instanceof HTMLTextAreaElement || document.activeElement instanceof HTMLInputElement) {
+        return;
+      }
+      
+      e.preventDefault();
+
+      const clipboardData = e.clipboardData;
+      if (!clipboardData) return;
+
       // Center of screen in canvas coordinates:
       const centerX = (window.innerWidth / 2 - viewport.x) / viewport.zoom;
       const centerY = (window.innerHeight / 2 - viewport.y) / viewport.zoom;
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.kind === 'string' && item.type === 'text/plain') {
-          item.getAsString((text) => {
-             addObject({
+      // 1. Check for Internal JSON in HTML
+      const html = clipboardData.getData('text/html');
+      if (html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        // Check meta tag
+        const meta = doc.querySelector('meta[name="datapureref-json"]');
+        // Check div
+        const div = doc.querySelector('div[data-pureref-json="true"]');
+        
+        let jsonData = null;
+        if (meta) {
+            const content = meta.getAttribute('content');
+            if (content) jsonData = content;
+        } else if (div) {
+            jsonData = div.textContent;
+        }
+
+        if (jsonData) {
+            try {
+                const pastedObjects = JSON.parse(jsonData) as CanvasObject[];
+                if (Array.isArray(pastedObjects) && pastedObjects.length > 0) {
+                    // Calculate offset to paste at center or near original?
+                    // Usually Paste at Center is better if from external.
+                    // If "Duplicate" (Ctrl+D), it's near original. 
+                    // Ctrl+V usually implies center or mouse position. 
+                    // Let's use Center.
+                    
+                    // Calculate bounding box of pasted objects to center them
+                    let minX = Infinity, minY = Infinity;
+                    pastedObjects.forEach(obj => {
+                        minX = Math.min(minX, obj.position.x);
+                        minY = Math.min(minY, obj.position.y);
+                    });
+
+                    // Add Objects with new IDs
+                    const newObjects = pastedObjects.map(obj => {
+                        return {
+                            ...obj,
+                            id: uuidv4(),
+                            position: {
+                                x: obj.position.x - minX + centerX - 100, // Offset slightly to center
+                                y: obj.position.y - minY + centerY - 50
+                            },
+                            zIndex: Date.now() + Math.random(), // Ensure top
+                            selected: true
+                        };
+                    });
+                    
+                    // We need to ensure we don't just "add" them if they have fileIds that point to missing files?
+                    // IndexedDB files persist, so fileId should be valid if on same machine.
+                    // If on different machine, fileId won't work.
+                    // But we can't solve cross-machine copy without uploading files.
+                    // For local "Real Data Copy" within same app, this works.
+                    
+                    addObjects(newObjects);
+                    selectObjects(newObjects.map(o => o.id));
+                    return; // Done
+                }
+            } catch (err) {
+                console.error('Failed to parse internal clipboard data', err);
+            }
+        }
+      }
+
+      // 2. Handle Standard Files (Images/Videos)
+      if (clipboardData.files.length > 0) {
+          for (let i = 0; i < clipboardData.files.length; i++) {
+              const file = clipboardData.files[i];
+              await processFile(file, centerX + i * 20, centerY + i * 20);
+          }
+          return;
+      }
+
+      // 3. Handle Plain Text
+      const text = clipboardData.getData('text/plain');
+      if (text) {
+          addObject({
               id: uuidv4(),
               type: 'text',
               position: { x: centerX, y: centerY },
@@ -312,20 +457,17 @@ export const InfiniteCanvas: React.FC = () => {
               fontWeight: 'normal',
               fontStyle: 'normal',
               color: '#ffffff'
-            });
           });
-        } else if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) {
-            await processFile(file, centerX, centerY);
-          }
-        }
       }
     };
 
+    window.addEventListener('copy', handleCopy);
     window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
-  }, [viewport, addObject]);
+    return () => {
+        window.removeEventListener('copy', handleCopy);
+        window.removeEventListener('paste', handlePaste);
+    };
+  }, [selectedObjectIds, objects, viewport, addObject, addObjects, selectObjects]);
 
   const processFile = async (file: File, x: number, y: number) => {
     const fileType = getFileType(file);
