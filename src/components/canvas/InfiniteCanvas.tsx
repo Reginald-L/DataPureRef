@@ -13,6 +13,7 @@ import { generateVideoThumbnail } from '../../utils/media';
 import { ContextMenu } from './ContextMenu';
 import { GroupToolbar } from './GroupToolbar';
 import { CanvasObject } from '../../types/canvas';
+import { Minimap } from './Minimap';
 
 const ObjectLayer = React.memo(({ objects }: { objects: CanvasObject[] }) => {
   return (
@@ -956,6 +957,7 @@ export const InfiniteCanvas: React.FC = () => {
       <GridBackground viewport={viewport} />
       <CanvasToolbar />
       <GroupToolbar />
+      <Minimap />
       
       {/* Object Layer */}
       <div 

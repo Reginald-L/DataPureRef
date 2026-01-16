@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight, Pencil } from 'lucide-react';
+import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight, Pencil, Map as MapIcon } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { generateExportHtml } from '../../utils/export';
 
@@ -21,7 +21,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     renamePage,
     selectedObjectIds,
     groupSelected,
-    ungroupObject
+    ungroupObject,
+    isMinimapVisible,
+    toggleMinimap
   } = useCanvasStore();
 
   const [showPageSubmenu, setShowPageSubmenu] = useState(false);
@@ -85,6 +87,11 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     if (selectedObjectIds.length === 1) {
       ungroupObject(selectedObjectIds[0]);
     }
+    onClose();
+  };
+
+  const handleToggleMinimap = () => {
+    toggleMinimap();
     onClose();
   };
 
@@ -222,12 +229,24 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
         </>
       )}
 
+      {/* Export */}
       <button
-        onClick={handleExport}
         className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
+        onClick={handleExport}
       >
         <Download size={14} />
-        <span>Export as HTML</span>
+        <span>Export HTML</span>
+      </button>
+
+      <div className="h-px bg-[#444] my-1" />
+
+      {/* Toggle Minimap */}
+      <button
+        className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
+        onClick={handleToggleMinimap}
+      >
+        <MapIcon size={14} />
+        <span>{isMinimapVisible ? 'Hide Minimap' : 'Show Minimap'}</span>
       </button>
     </div>
   );

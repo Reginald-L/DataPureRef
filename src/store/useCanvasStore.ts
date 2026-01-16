@@ -49,6 +49,9 @@ interface CanvasStore {
   groupSelected: () => void;
   ungroupObject: (id: string) => void;
   alignGroupChildren: (groupId: string, alignment: 'left' | 'center' | 'right') => void;
+
+  isMinimapVisible: boolean;
+  toggleMinimap: () => void;
 }
 
 const persistStorage = (() => {
@@ -108,6 +111,9 @@ export const useCanvasStore = create<CanvasStore>()(
       selectedObjectIds: [],
       editingObjectId: null,
       history: { past: [], future: [] },
+      isMinimapVisible: true,
+
+      toggleMinimap: () => set((state) => ({ isMinimapVisible: !state.isMinimapVisible })),
 
       pushHistorySnapshot: () =>
         set((state) => ({
@@ -652,7 +658,8 @@ export const useCanvasStore = create<CanvasStore>()(
         objects: state.objects, 
         viewport: state.viewport,
         pages: state.pages,
-        activePageId: state.activePageId
+        activePageId: state.activePageId,
+        isMinimapVisible: state.isMinimapVisible
       }),
       onRehydrateStorage: () => (state) => {
         // Migration: If we have objects but no pages (legacy data), init pages
