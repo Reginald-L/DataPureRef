@@ -2,6 +2,8 @@
 
 DataPureRef 是一个基于 React 的高性能无限画布应用，旨在帮助用户以可视化的方式组织和管理多媒体数据（文本、图片、视频）。它采用本地优先（Local-First）的设计理念，支持数据的自动保存和离线导出。
 
+[简体中文](./README.md) | [English](./README_EN.md)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![React](https://img.shields.io/badge/react-18.x-61dafb.svg)
 ![TypeScript](https://img.shields.io/badge/typescript-5.x-3178c6.svg)
