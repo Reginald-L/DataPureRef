@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CanvasObjectRenderer } from './CanvasObjectRenderer';
 import { getFileType } from '../../utils/file';
 import { saveFile, getFile } from '../../utils/storage';
+import { generateVideoThumbnail } from '../../utils/media';
 
 import { ContextMenu } from './ContextMenu';
 import { GroupToolbar } from './GroupToolbar';
@@ -76,12 +77,27 @@ export const InfiniteCanvas: React.FC = () => {
         
         try {
           const fileId = (obj as any).fileId;
-          const blob = await getFile(fileId);
-          if (blob) {
-            const newSrc = URL.createObjectURL(blob);
+          const thumbnailFileId = (obj as any).thumbnailFileId;
+          const changes: Partial<CanvasObject> = {};
+          
+          if (fileId) {
+             const blob = await getFile(fileId);
+             if (blob) {
+               (changes as any).src = URL.createObjectURL(blob);
+             }
+           }
+
+          if (thumbnailFileId && obj.type === 'video') {
+             const thumbBlob = await getFile(thumbnailFileId);
+             if (thumbBlob) {
+               (changes as any).thumbnail = URL.createObjectURL(thumbBlob);
+             }
+          }
+
+          if (Object.keys(changes).length > 0) {
             updates.push({
               id: obj.id,
-              changes: { src: newSrc }
+              changes
             });
           }
         } catch (err) {
@@ -356,6 +372,17 @@ export const InfiniteCanvas: React.FC = () => {
         };
         img.src = src;
       } else if (fileType === 'video') {
+         let thumbnailSrc: string | undefined;
+         let thumbnailFileId: string | undefined;
+
+         try {
+           const thumbBlob = await generateVideoThumbnail(file);
+           thumbnailFileId = await saveFile(thumbBlob);
+           thumbnailSrc = URL.createObjectURL(thumbBlob);
+         } catch (e) {
+           console.warn('Failed to generate video thumbnail', e);
+         }
+
          addObject({
             id,
             type: 'video',
@@ -366,6 +393,8 @@ export const InfiniteCanvas: React.FC = () => {
             updatedAt: Date.now(),
             src,
             fileId,
+            thumbnail: thumbnailSrc,
+            thumbnailFileId,
             currentTime: 0
           });
       }
@@ -518,6 +547,16 @@ export const InfiniteCanvas: React.FC = () => {
           const videoId = uuidv4();
           restoredObjectIds.current.add(videoId);
 
+          let thumbnailSrc: string | undefined;
+          let thumbnailFileId: string | undefined;
+          try {
+            const thumbBlob = await generateVideoThumbnail(pair.video);
+            thumbnailFileId = await saveFile(thumbBlob);
+            thumbnailSrc = URL.createObjectURL(thumbBlob);
+          } catch (e) {
+             console.warn('Failed to generate video thumbnail', e);
+          }
+
           objectsToAdd.push({
             id: videoId,
             type: 'video',
@@ -528,6 +567,8 @@ export const InfiniteCanvas: React.FC = () => {
             updatedAt: baseTime,
             src: videoSrc,
             fileId: videoFileId,
+            thumbnail: thumbnailSrc,
+            thumbnailFileId,
             currentTime: 0
           });
         }

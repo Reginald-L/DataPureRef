@@ -18,7 +18,8 @@ export interface VideoObject extends BaseCanvasObject {
   type: 'video';
   src: string;
   fileId?: string;
-  thumbnail?: string;
+  thumbnail?: string; // Blob URL of the thumbnail
+  thumbnailFileId?: string; // IDB key for the thumbnail
   currentTime?: number;
 }
 
