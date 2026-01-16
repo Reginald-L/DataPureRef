@@ -28,19 +28,24 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
   const [renamingPageId, setRenamingPageId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
 
-  const handleExport = () => {
-    const htmlContent = generateExportHtml(objects, viewport);
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `infinite-canvas-${new Date().toISOString().slice(0, 10)}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    onClose();
+  const handleExport = async () => {
+    try {
+      const htmlContent = await generateExportHtml(objects, viewport);
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `infinite-canvas-${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      onClose();
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('导出失败，请重试');
+    }
   };
 
   const handleAddPage = () => {

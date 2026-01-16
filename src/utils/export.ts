@@ -1,8 +1,42 @@
 import { CanvasObject, Viewport } from '../types/canvas';
+import { getFile } from './storage';
 
-export const generateExportHtml = (objects: CanvasObject[], viewport: Viewport): string => {
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to convert blob to base64'));
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+export const generateExportHtml = async (objects: CanvasObject[], viewport: Viewport): Promise<string> => {
+  // Deep clone objects to avoid mutating the original state
+  const clonedObjects = JSON.parse(JSON.stringify(objects));
+
+  // Process objects to embed media
+  for (const obj of clonedObjects) {
+    if ((obj.type === 'image' || obj.type === 'video') && obj.fileId) {
+      try {
+        const blob = await getFile(obj.fileId);
+        if (blob) {
+          const base64 = await blobToBase64(blob);
+          obj.src = base64;
+        }
+      } catch (err) {
+        console.error(`Failed to embed media for object ${obj.id}`, err);
+      }
+    }
+  }
+
   const state = {
-    objects,
+    objects: clonedObjects,
     viewport
   };
 
