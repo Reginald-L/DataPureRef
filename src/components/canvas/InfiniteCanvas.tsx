@@ -74,6 +74,8 @@ export const InfiniteCanvas: React.FC = () => {
 
       if (objectsToRestore.length === 0) return;
 
+      console.log(`[InfiniteCanvas] Found ${objectsToRestore.length} objects to restore media for.`);
+
       for (const obj of objectsToRestore) {
         // Mark as processed immediately to prevent duplicate processing
         restoredObjectIds.current.add(obj.id);
@@ -83,10 +85,15 @@ export const InfiniteCanvas: React.FC = () => {
           const thumbnailFileId = (obj as any).thumbnailFileId;
           const changes: Partial<CanvasObject> = {};
           
+          let restored = false;
+
           if (fileId) {
              const blob = await getFile(fileId);
              if (blob) {
                (changes as any).src = URL.createObjectURL(blob);
+               restored = true;
+             } else {
+               console.warn(`[InfiniteCanvas] File blob not found for object ${obj.id} (fileId: ${fileId})`);
              }
            }
 
@@ -94,36 +101,29 @@ export const InfiniteCanvas: React.FC = () => {
              const thumbBlob = await getFile(thumbnailFileId);
              if (thumbBlob) {
                (changes as any).thumbnail = URL.createObjectURL(thumbBlob);
+               restored = true;
              }
           }
 
-          if (Object.keys(changes).length > 0) {
+          if (restored && Object.keys(changes).length > 0) {
             updates.push({
               id: obj.id,
               changes
             });
+          } else if (!restored) {
+             // If we failed to restore anything, maybe we should remove from restoredObjectIds to try again later?
+             // But if the file is missing from DB, trying again won't help.
+             // We keep it in restoredObjectIds to avoid infinite retry loops.
           }
         } catch (err) {
-          console.error(`Failed to restore media for object ${obj.id}`, err);
+          console.error(`[InfiniteCanvas] Failed to restore media for object ${obj.id}`, err);
+          // On error, we might want to allow retry if it was transient
+          // restoredObjectIds.current.delete(obj.id); 
         }
       }
 
       if (updates.length > 0) {
-        // Use transient update or regular update? 
-        // Regular update ensures the new blob URL is in the store (though it will be invalid on next reload, that's fine)
-        // We skip history to avoid undo steps for restoration
-        // Wait, updateObjects doesn't support skipHistory flag in the store interface I saw earlier?
-        // Let's check useCanvasStore.ts
-        // updateObjects: (updates: { id: string; changes: Partial<CanvasObject> }[]) => void;
-        // It doesn't have skipHistory. 
-        // But addObject has. 
-        // Maybe I should use updateObject loop if I want to skip history?
-        // Or just let it be in history? If it's in history, undoing it will revert to the OLD (broken) URL.
-        // That's bad.
-        // I should probably add skipHistory to updateObjects in the store, but for now I'll just use it.
-        // Or I can just manually call updateObjects.
-        // Actually, if I restore, the user hasn't done anything. Undoing shouldn't be possible.
-        // So I really need skipHistory.
+        console.log(`[InfiniteCanvas] Applying media updates for ${updates.length} objects.`);
         updateObjects(updates); 
       }
     };

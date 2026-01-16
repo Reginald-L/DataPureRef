@@ -32,7 +32,13 @@ export const saveFile = async (file: Blob): Promise<string> => {
   // Since we are in a browser environment where crypto.randomUUID might be available.
   const fileId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
   
-  await db.put('files', file, fileId);
+  try {
+    await db.put('files', file, fileId);
+    console.log(`[Storage] Saved file ${fileId} (${file.size} bytes)`);
+  } catch (err) {
+    console.error(`[Storage] Failed to save file ${fileId}`, err);
+    throw err;
+  }
   return fileId;
 };
 
