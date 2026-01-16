@@ -32,8 +32,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
 
   const handleExport = async () => {
     try {
-      const htmlContent = await generateExportHtml(objects, viewport);
-      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const blob = await generateExportHtml(objects, viewport);
       const url = URL.createObjectURL(blob);
       
       const a = document.createElement('a');
@@ -42,7 +41,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 60_000);
       onClose();
     } catch (err) {
       console.error('Export failed:', err);

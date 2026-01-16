@@ -16,31 +16,19 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
   });
 };
 
-export const generateExportHtml = async (objects: CanvasObject[], viewport: Viewport): Promise<string> => {
-  // Deep clone objects to avoid mutating the original state
-  const clonedObjects = JSON.parse(JSON.stringify(objects));
+const escapeJsonForHtmlScriptTag = (json: string): string => {
+  return json
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+};
 
-  // Process objects to embed media
-  for (const obj of clonedObjects) {
-    if ((obj.type === 'image' || obj.type === 'video') && obj.fileId) {
-      try {
-        const blob = await getFile(obj.fileId);
-        if (blob) {
-          const base64 = await blobToBase64(blob);
-          obj.src = base64;
-        }
-      } catch (err) {
-        console.error(`Failed to embed media for object ${obj.id}`, err);
-      }
-    }
-  }
+export const generateExportHtml = async (objects: CanvasObject[], viewport: Viewport): Promise<Blob> => {
+  const parts: string[] = [];
 
-  const state = {
-    objects: clonedObjects,
-    viewport
-  };
-
-  return `
+  parts.push(`
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -117,19 +105,106 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
         </div>
         <div id="canvas"></div>
     </div>
+    <div id="loading" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 8px; z-index: 9999;">
+        Loading...
+    </div>
+`);
 
+  let processedCount = 0;
+  parts.push(
+    `<script id="datapureref-viewport" type="application/json">${escapeJsonForHtmlScriptTag(JSON.stringify(viewport))}</script>\n`
+  );
+
+  for (const obj of objects) {
+    processedCount++;
+    if (processedCount % 2 === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    const tempObj = JSON.parse(JSON.stringify(obj));
+
+    if ((tempObj.type === 'image' || tempObj.type === 'video') && tempObj.fileId) {
+      try {
+        const blob = await getFile(tempObj.fileId);
+        if (blob) {
+          const base64 = await blobToBase64(blob);
+          tempObj.src = base64;
+        }
+      } catch (err) {
+        console.error(`Failed to embed media for object ${tempObj.id}`, err);
+      }
+    }
+
+    parts.push(
+      `<script type="application/json" data-datapureref-object="1">${escapeJsonForHtmlScriptTag(JSON.stringify(tempObj))}</script>\n`
+    );
+  }
+
+  parts.push(`
     <script>
-        const state = ${JSON.stringify(state)};
-        let { viewport } = state;
-        const container = document.getElementById('container');
-        const canvas = document.getElementById('canvas');
-        const grid = document.getElementById('grid');
-        const gridPattern = grid.querySelector('.grid-pattern');
+        try {
+            const viewport = JSON.parse(document.getElementById('datapureref-viewport')?.textContent || '{"x":0,"y":0,"zoom":1}');
+            
+            // Lazy load objects to avoid OOM during parsing
+            const objectScripts = document.querySelectorAll('script[data-datapureref-object="1"]');
+            const objects = [];
+            
+            // Intersection Observer for Lazy Loading Media
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const el = entry.target;
+                        const src = el.dataset.src;
+                        if (src) {
+                            if (el.tagName === 'IMG') el.src = src;
+                            else if (el.tagName === 'VIDEO') el.src = src;
+                            el.removeAttribute('data-src');
+                            observer.unobserve(el);
+                        }
+                    }
+                });
+            }, { root: document.getElementById('container'), rootMargin: '500px' }); // Preload margin
 
-        // Render Objects
-        function render() {
-            canvas.innerHTML = '';
-            state.objects.sort((a, b) => a.zIndex - b.zIndex).forEach(obj => {
+            const state = { objects, viewport };
+            
+            const container = document.getElementById('container');
+            const canvas = document.getElementById('canvas');
+            const grid = document.getElementById('grid');
+            const gridPattern = grid.querySelector('.grid-pattern');
+            const loading = document.getElementById('loading');
+
+            // Chunked Parsing and Rendering
+            let scriptIndex = 0;
+            const CHUNK_SIZE = 50;
+
+            function processChunk() {
+                const limit = Math.min(scriptIndex + CHUNK_SIZE, objectScripts.length);
+                for (let i = scriptIndex; i < limit; i++) {
+                    try {
+                        const el = objectScripts[i];
+                        const obj = JSON.parse(el.textContent || 'null');
+                        if (obj) {
+                            objects.push(obj);
+                            renderObject(obj);
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse object', e);
+                    }
+                }
+                scriptIndex = limit;
+                
+                if (scriptIndex < objectScripts.length) {
+                    loading.textContent = \`Loading \${Math.round((scriptIndex / objectScripts.length) * 100)}%...\`;
+                    requestAnimationFrame(processChunk);
+                } else {
+                    loading.style.display = 'none';
+                    state.objects.sort((a, b) => a.zIndex - b.zIndex); // Re-sort if needed (though we appended in order)
+                    // Note: DOM order is already correct if scripts are in order
+                    updateTransform();
+                }
+            }
+
+            function renderObject(obj) {
                 const el = document.createElement('div');
                 el.className = 'obj';
                 el.style.left = obj.position.x + 'px';
@@ -148,7 +223,10 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                 } else if (obj.type === 'image') {
                     el.classList.add('obj-image');
                     const img = document.createElement('img');
-                    img.src = obj.src;
+                    // Lazy Load Image
+                    img.dataset.src = obj.src;
+                    observer.observe(img);
+                    
                     el.appendChild(img);
 
                     // Double click to reset size
@@ -157,8 +235,6 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                         const newImg = new Image();
                         newImg.src = obj.src;
                         newImg.onload = () => {
-                            // Update object size in state (though specific update logic isn't fully reactive here, 
-                            // we manipulate DOM directly for export view)
                             obj.size.width = newImg.width;
                             obj.size.height = newImg.height;
                             el.style.width = newImg.width + 'px';
@@ -168,107 +244,114 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                 } else if (obj.type === 'video') {
                     el.classList.add('obj-video');
                     const video = document.createElement('video');
-                    video.src = obj.src;
+                    // Lazy Load Video
+                    video.dataset.src = obj.src;
                     video.controls = true;
+                    observer.observe(video);
+                    
                     el.appendChild(video);
                 }
 
                 canvas.appendChild(el);
+            }
+
+            function updateTransform() {
+                canvas.style.transform = \`translate(\${viewport.x}px, \${viewport.y}px) scale(\${viewport.zoom})\`;
+                
+                // Update Grid
+                const gridSize = 50 * viewport.zoom;
+                const backgroundSize = \`\${gridSize}px \${gridSize}px\`;
+                const backgroundPosition = \`\${viewport.x}px \${viewport.y}px\`;
+                
+                gridPattern.style.backgroundSize = backgroundSize;
+                gridPattern.style.backgroundPosition = backgroundPosition;
+            }
+
+            // Interaction State
+            let isDragging = false;
+            let lastMousePos = { x: 0, y: 0 };
+
+            // Prevent default browser zoom and autoscroll
+            container.addEventListener('wheel', (e) => {
+                if (e.ctrlKey) e.preventDefault();
+            }, { passive: false });
+            
+            container.addEventListener('mousedown', (e) => {
+                 if (e.button === 1) e.preventDefault();
+            }, { passive: false });
+
+            // Pan Logic (Pointer Events for better compatibility)
+            container.addEventListener('pointerdown', (e) => {
+                if (e.button === 1) { // Middle Click
+                    e.preventDefault();
+                    isDragging = true;
+                    lastMousePos = { x: e.clientX, y: e.clientY };
+                    container.style.cursor = 'grabbing';
+                    container.setPointerCapture(e.pointerId);
+                }
             });
-            updateTransform();
-        }
 
-        function updateTransform() {
-            canvas.style.transform = \`translate(\${viewport.x}px, \${viewport.y}px) scale(\${viewport.zoom})\`;
-            
-            // Update Grid
-            const gridSize = 50 * viewport.zoom;
-            const backgroundSize = \`\${gridSize}px \${gridSize}px\`;
-            const backgroundPosition = \`\${viewport.x}px \${viewport.y}px\`;
-            
-            gridPattern.style.backgroundSize = backgroundSize;
-            gridPattern.style.backgroundPosition = backgroundPosition;
-        }
+            container.addEventListener('pointermove', (e) => {
+                if (isDragging) {
+                    e.preventDefault();
+                    const dx = e.clientX - lastMousePos.x;
+                    const dy = e.clientY - lastMousePos.y;
+                    
+                    viewport.x += dx;
+                    viewport.y += dy;
+                    
+                    lastMousePos = { x: e.clientX, y: e.clientY };
+                    updateTransform();
+                }
+            });
 
-        // Interaction State
-        let isDragging = false;
-        let lastMousePos = { x: 0, y: 0 };
+            container.addEventListener('pointerup', (e) => {
+                if (isDragging) {
+                    isDragging = false;
+                    container.style.cursor = 'default';
+                    container.releasePointerCapture(e.pointerId);
+                }
+            });
 
-        // Prevent default browser zoom and autoscroll
-        container.addEventListener('wheel', (e) => {
-            if (e.ctrlKey) e.preventDefault();
-        }, { passive: false });
-        
-        container.addEventListener('mousedown', (e) => {
-             if (e.button === 1) e.preventDefault();
-        }, { passive: false });
-
-        // Pan Logic (Pointer Events for better compatibility)
-        container.addEventListener('pointerdown', (e) => {
-            if (e.button === 1) { // Middle Click
+            // Zoom Logic
+            container.addEventListener('wheel', (e) => {
+                if (e.ctrlKey) e.preventDefault(); // Prevent browser zoom
                 e.preventDefault();
-                isDragging = true;
-                lastMousePos = { x: e.clientX, y: e.clientY };
-                container.style.cursor = 'grabbing';
-                container.setPointerCapture(e.pointerId);
-            }
-        });
 
-        container.addEventListener('pointermove', (e) => {
-            if (isDragging) {
-                e.preventDefault();
-                const dx = e.clientX - lastMousePos.x;
-                const dy = e.clientY - lastMousePos.y;
-                
-                viewport.x += dx;
-                viewport.y += dy;
-                
-                lastMousePos = { x: e.clientX, y: e.clientY };
+                const zoomFactor = -e.deltaY * 0.001;
+                const scale = 1 + zoomFactor;
+                const newZoom = Math.max(0.1, Math.min(5, viewport.zoom * scale));
+
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                // Canvas coordinates of mouse
+                const canvasX = (mouseX - viewport.x) / viewport.zoom;
+                const canvasY = (mouseY - viewport.y) / viewport.zoom;
+
+                // New viewport position
+                const newX = mouseX - canvasX * newZoom;
+                const newY = mouseY - canvasY * newZoom;
+
+                viewport.zoom = newZoom;
+                viewport.x = newX;
+                viewport.y = newY;
+
                 updateTransform();
-            }
-        });
+            }, { passive: false });
 
-        container.addEventListener('pointerup', (e) => {
-            if (isDragging) {
-                isDragging = false;
-                container.style.cursor = 'default';
-                container.releasePointerCapture(e.pointerId);
-            }
-        });
+            // Initial Render
+            requestAnimationFrame(processChunk);
 
-        // Zoom Logic
-        container.addEventListener('wheel', (e) => {
-            if (e.ctrlKey) e.preventDefault(); // Prevent browser zoom
-            e.preventDefault();
-
-            const zoomFactor = -e.deltaY * 0.001;
-            const scale = 1 + zoomFactor;
-            const newZoom = Math.max(0.1, Math.min(5, viewport.zoom * scale));
-
-            const rect = container.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            // Canvas coordinates of mouse
-            const canvasX = (mouseX - viewport.x) / viewport.zoom;
-            const canvasY = (mouseY - viewport.y) / viewport.zoom;
-
-            // New viewport position
-            const newX = mouseX - canvasX * newZoom;
-            const newY = mouseY - canvasY * newZoom;
-
-            viewport.zoom = newZoom;
-            viewport.x = newX;
-            viewport.y = newY;
-
-            updateTransform();
-        }, { passive: false });
-
-        // Initial Render
-        render();
-
+        } catch (err) {
+            console.error(err);
+            document.body.innerHTML = '<div style="color:red; padding:20px;">Failed to load export: ' + err.message + '</div>';
+        }
     </script>
 </body>
 </html>
-  `;
+`);
+
+  return new Blob(parts, { type: 'text/html;charset=utf-8' });
 };

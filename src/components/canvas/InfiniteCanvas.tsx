@@ -15,6 +15,8 @@ import { GroupToolbar } from './GroupToolbar';
 import { CanvasObject } from '../../types/canvas';
 import { Minimap } from './Minimap';
 
+import { parseLargeHtmlFile } from '../../utils/largeFileImport';
+
 const ObjectLayer = React.memo(({ objects }: { objects: CanvasObject[] }) => {
   return (
     <>
@@ -823,7 +825,68 @@ export const InfiniteCanvas: React.FC = () => {
         const htmlFile = files.find(f => f.type === 'text/html' || f.name.endsWith('.html'));
         if (htmlFile) {
             try {
+                // Try parsing with large file streaming parser first (supports > 500MB)
+                try {
+                  const { viewport, objects } = await parseLargeHtmlFile(htmlFile);
+                  if (viewport && objects.length > 0) {
+                    loadCanvas({ objects, viewport });
+                    return;
+                  }
+                } catch (e) {
+                  console.warn("Large file parser failed, falling back to text()", e);
+                }
+
                 const text = await htmlFile.text();
+                try {
+                  const parser = new DOMParser();
+                  const doc = parser.parseFromString(text, 'text/html');
+                  const viewportEl = doc.querySelector('script#datapureref-viewport[type="application/json"]');
+                  const objectEls = Array.from(doc.querySelectorAll('script[data-datapureref-object="1"][type="application/json"]'));
+
+                  if (viewportEl?.textContent) {
+                    const parsedViewport = JSON.parse(viewportEl.textContent);
+                    const parsedObjects = objectEls
+                      .map((el) => {
+                        try {
+                          return el.textContent ? (JSON.parse(el.textContent) as CanvasObject) : null;
+                        } catch {
+                          return null;
+                        }
+                      })
+                      .filter(Boolean) as CanvasObject[];
+
+                    if (parsedViewport && Array.isArray(parsedObjects)) {
+                      loadCanvas({ objects: parsedObjects, viewport: parsedViewport });
+                      return;
+                    }
+                  }
+                } catch (err) {
+                  console.error('Failed to parse exported HTML metadata', err);
+                }
+
+                const viewportMatch = text.match(/const\s+viewport\s*=\s*(\{.*?\});/);
+                const objectMatches = [...text.matchAll(/objects\.push\((\{.*\})\);/g)];
+                if (viewportMatch && viewportMatch[1]) {
+                  try {
+                    const parsedViewport = JSON.parse(viewportMatch[1]);
+                    const parsedObjects = objectMatches
+                      .map((m) => {
+                        try {
+                          return JSON.parse(m[1]) as CanvasObject;
+                        } catch {
+                          return null;
+                        }
+                      })
+                      .filter(Boolean) as CanvasObject[];
+
+                    loadCanvas({ objects: parsedObjects, viewport: parsedViewport });
+                    return;
+                  } catch (err) {
+                    console.error('Failed to parse exported HTML script data', err);
+                  }
+                }
+
+                // Fallback to old format
                 // Look for the state object in the exported HTML
                 // Pattern: const state = {...}; followed by let { viewport } = state;
                 // We include the following line in the regex to ensure we don't stop early at a "};" inside a string
