@@ -33,6 +33,8 @@ DataPureRef is a high-performance infinite canvas application based on React, de
   - **Auto Save**: Local persistent storage based on IndexedDB, no data loss on page refresh (including large video files).
   - **Independent Export**: Supports one-click export of current canvas as a **single HTML file**. All images and videos are embedded as Base64, requiring no external dependencies, and can be interacted with (zoom, pan, play) directly in the browser.
 
+![example.png](assert/EXAMPLE.png)
+
 ## 🛠️ Tech Stack
 
 - **Core Framework**: [React 18](https://react.dev/), [TypeScript](https://www.typescriptlang.org/)

@@ -33,6 +33,8 @@ DataPureRef 是一个基于 React 的高性能无限画布应用，旨在帮助�
   - **自动保存**: 基于 IndexedDB 的本地持久化存储，刷新页面不丢失任何数据（包括大型视频文件）。
   - **独立导出**: 支持将当前画布一键导出为**单文件 HTML**。所有图片、视频均以 Base64 编码嵌入，无需外部依赖，直接在浏览器中打开即可交互（缩放、平移、播放）。
 
+![example.png](assert/EXAMPLE.png)
+
 ## 🛠️ 技术栈
 
 - **核心框架**: [React 18](https://react.dev/), [TypeScript](https://www.typescriptlang.org/)
