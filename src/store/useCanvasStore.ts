@@ -49,6 +49,7 @@ interface CanvasStore {
   groupSelected: () => void;
   ungroupObject: (id: string) => void;
   alignGroupChildren: (groupId: string, alignment: 'left' | 'center' | 'right') => void;
+  layoutSelectedObjects: (cols: number, gap?: number) => void;
 
   isMinimapVisible: boolean;
   toggleMinimap: () => void;
@@ -649,7 +650,72 @@ export const useCanvasStore = create<CanvasStore>()(
                   future: []
               }
           };
-        })
+        }),
+
+      layoutSelectedObjects: (cols, gap = 20) =>
+        set((state) => {
+          const selectedIds = state.selectedObjectIds;
+          if (selectedIds.length === 0) return {};
+
+          const selectedObjects = state.objects.filter((obj) => selectedIds.includes(obj.id));
+          if (selectedObjects.length === 0) return {};
+
+          // Sort objects by visual order (Top-Left to Bottom-Right)
+          // Threshold for "same row" to avoid jitter?
+          // Let's just do simple Y then X for now.
+          const sorted = [...selectedObjects].sort((a, b) => {
+             const dy = a.position.y - b.position.y;
+             if (Math.abs(dy) > 10) return dy; // If Y differs significantly, sort by Y
+             return a.position.x - b.position.x; // Otherwise sort by X
+          });
+
+          // Calculate bounds and grid metrics
+          const minX = Math.min(...selectedObjects.map((o) => o.position.x));
+          const minY = Math.min(...selectedObjects.map((o) => o.position.y));
+          
+          const maxW = Math.max(...selectedObjects.map((o) => o.size.width));
+          const maxH = Math.max(...selectedObjects.map((o) => o.size.height));
+
+          const cellW = maxW;
+          const cellH = maxH;
+
+          // Calculate new positions
+          const updates = new Map<string, { x: number, y: number }>();
+          
+          sorted.forEach((obj, index) => {
+             const col = index % cols;
+             const row = Math.floor(index / cols);
+             
+             const newX = minX + col * (cellW + gap);
+             const newY = minY + row * (cellH + gap);
+             
+             updates.set(obj.id, { x: newX, y: newY });
+          });
+
+          // Apply updates
+          const newObjects = state.objects.map(obj => {
+             if (updates.has(obj.id)) {
+                 const pos = updates.get(obj.id)!;
+                 return { ...obj, position: pos, updatedAt: Date.now() } as CanvasObject;
+             }
+             return obj;
+          });
+
+          const newPages = state.pages.map(p => 
+            p.id === state.activePageId 
+            ? { ...p, objects: newObjects, updatedAt: Date.now() } 
+            : p
+          );
+
+          return {
+            objects: newObjects,
+            pages: newPages,
+            history: {
+                past: [...state.history.past, state.objects].slice(-50),
+                future: []
+            }
+          };
+        }),
     }),
     {
       name: 'canvas-storage',

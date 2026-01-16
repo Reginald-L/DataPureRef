@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight, Pencil, Map as MapIcon } from 'lucide-react';
+import { Download, File, Plus, Trash2, Check, Group, Ungroup, ChevronRight, Pencil, Map as MapIcon, LayoutGrid } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { generateExportHtml } from '../../utils/export';
+import { GridLayoutPicker } from './GridLayoutPicker';
 
 interface ContextMenuProps {
   x: number;
@@ -23,10 +24,12 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     groupSelected,
     ungroupObject,
     isMinimapVisible,
-    toggleMinimap
+    toggleMinimap,
+    layoutSelectedObjects
   } = useCanvasStore();
 
   const [showPageSubmenu, setShowPageSubmenu] = useState(false);
+  const [showLayoutSubmenu, setShowLayoutSubmenu] = useState(false);
   const [renamingPageId, setRenamingPageId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
 
@@ -96,6 +99,11 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     onClose();
   };
 
+  const handleLayoutSelect = (cols: number) => {
+    layoutSelectedObjects(cols);
+    onClose();
+  };
+
   // Close context menu on click outside
   useEffect(() => {
     const handleClickOutside = () => onClose();
@@ -115,6 +123,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
       className="absolute bg-[#2a2a2a] border border-[#444] rounded-lg shadow-xl py-1 z-[100] min-w-[200px]"
       style={{ left: x, top: y }}
       onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Pages Submenu Trigger */}
@@ -208,6 +217,32 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
       {(showGroup || showUngroup) && (
         <>
           {showGroup && (
+            <>
+            <div 
+              className="relative"
+              onMouseEnter={() => setShowLayoutSubmenu(true)}
+              onMouseLeave={() => setShowLayoutSubmenu(false)}
+            >
+              <button
+                className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center justify-between text-sm transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <LayoutGrid size={14} />
+                  <span>Layout Grid</span>
+                </div>
+                <ChevronRight size={14} />
+              </button>
+
+              {/* Layout Submenu */}
+              {showLayoutSubmenu && (
+                <div 
+                  className="absolute left-full top-0 ml-1 bg-[#2a2a2a] border border-[#444] rounded-lg shadow-xl min-w-[150px]"
+                >
+                  <GridLayoutPicker onSelect={handleLayoutSelect} />
+                </div>
+              )}
+            </div>
+
             <button
               onClick={handleGroup}
               className="w-full text-left px-3 py-1.5 text-gray-300 hover:bg-[#3a3a3a] flex items-center gap-2 text-sm transition-colors"
@@ -215,6 +250,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
               <Group size={14} />
               <span>Group Selection</span>
             </button>
+            </>
           )}
           
           {showUngroup && (
