@@ -186,6 +186,13 @@ export const InfiniteCanvas: React.FC = () => {
         }
       }
 
+      // Select All
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        const allIds = objects.map(obj => obj.id);
+        selectObjects(allIds);
+      }
+
       // Undo / Redo
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
