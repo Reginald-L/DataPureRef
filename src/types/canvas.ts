@@ -10,12 +10,14 @@ export interface BaseCanvasObject {
 export interface ImageObject extends BaseCanvasObject {
   type: 'image';
   src: string;
+  fileId?: string;
   alt?: string;
 }
 
 export interface VideoObject extends BaseCanvasObject {
   type: 'video';
   src: string;
+  fileId?: string;
   thumbnail?: string;
   currentTime?: number;
 }

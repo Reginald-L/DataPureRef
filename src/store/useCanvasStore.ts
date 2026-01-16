@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CanvasObject, Viewport, GroupObject, CanvasPage } from '../types/canvas';
-import { openDB } from 'idb';
+import { dbPromise } from '../utils/storage';
 import { v4 as uuidv4 } from 'uuid';
 
 interface CanvasStore {
@@ -51,12 +51,6 @@ interface CanvasStore {
   alignGroupChildren: (groupId: string, alignment: 'left' | 'center' | 'right') => void;
 }
 
-const dbPromise = openDB('canvas-db', 1, {
-  upgrade(db) {
-    db.createObjectStore('store');
-  },
-});
-
 const persistStorage = (() => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let lastName: string | null = null;
@@ -65,22 +59,37 @@ const persistStorage = (() => {
   const flush = async () => {
     if (!lastName) return;
     const db = await dbPromise;
-    await db.put('store', JSON.stringify(lastValue), lastName);
+    try {
+      await db.put('store', lastValue, lastName);
+    } catch (err) {
+      console.error('Failed to save state to IDB:', err);
+    }
   };
+
+  // Attempt to save on page unload
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        flush();
+      }
+    });
+  }
 
   return {
     getItem: async (name: string): Promise<any | null> => {
       const db = await dbPromise;
       const raw = (await db.get('store', name)) || null;
-      return raw ? JSON.parse(raw) : null;
+      return raw;
     },
     setItem: (name: string, value: any): void => {
       lastName = name;
       lastValue = value;
       if (timeoutId) clearTimeout(timeoutId);
+      // Reduce debounce time to 200ms to ensure faster persistence
       timeoutId = setTimeout(() => {
         flush();
-      }, 1000);
+      }, 200);
     },
     removeItem: async (name: string): Promise<void> => {
       const db = await dbPromise;
