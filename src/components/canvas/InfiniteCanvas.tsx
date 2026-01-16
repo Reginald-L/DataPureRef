@@ -489,10 +489,14 @@ export const InfiniteCanvas: React.FC = () => {
     const keys = Array.from(pairs.keys()).sort((a, b) => a.localeCompare(b));
     const baseTime = Date.now();
     const columnWidth = 420;
-    const rowGap = 20;
+    const rowGap = 10;
     const videoSize = { width: 400, height: 300 };
     const imageSlotHeight = 300;
     const textSize = { width: 420, height: 120 };
+
+    // Check if we need to reserve space for videos/images in this batch
+    const hasVideos = Array.from(pairs.values()).some(p => !!p.video);
+    const hasImages = Array.from(pairs.values()).some(p => !!p.image);
 
     const objectsToAdd: CanvasObject[] = [];
     const BATCH_SIZE = 5; // Process in small batches to avoid OOM
@@ -504,6 +508,7 @@ export const InfiniteCanvas: React.FC = () => {
       if (!pair) continue;
 
       const colX = x + i * columnWidth;
+      let currentY = y;
 
       try {
         if (pair.video) {
@@ -516,7 +521,7 @@ export const InfiniteCanvas: React.FC = () => {
           objectsToAdd.push({
             id: videoId,
             type: 'video',
-            position: { x: colX, y },
+            position: { x: colX, y: currentY },
             size: { ...videoSize },
             zIndex: baseTime + i * 3,
             createdAt: baseTime,
@@ -525,6 +530,11 @@ export const InfiniteCanvas: React.FC = () => {
             fileId: videoFileId,
             currentTime: 0
           });
+        }
+        
+        // If there are any videos in this batch, reserve space for them
+        if (hasVideos) {
+            currentY += videoSize.height + rowGap;
         }
 
         if (pair.image) {
@@ -546,7 +556,7 @@ export const InfiniteCanvas: React.FC = () => {
           objectsToAdd.push({
             id: imageId,
             type: 'image',
-            position: { x: colX, y: y + videoSize.height + rowGap },
+            position: { x: colX, y: currentY },
             size: { width: Math.round(width * scale), height: Math.round(height * scale) },
             zIndex: baseTime + i * 3 + 1,
             createdAt: baseTime,
@@ -557,12 +567,17 @@ export const InfiniteCanvas: React.FC = () => {
           });
         }
 
+        // If there are any images in this batch, reserve space for them
+        if (hasImages) {
+            currentY += imageSlotHeight + rowGap;
+        }
+
         if (pair.text) {
           const text = await pair.text.text();
           objectsToAdd.push({
             id: uuidv4(),
             type: 'text',
-            position: { x: colX, y: y + videoSize.height + rowGap + imageSlotHeight + rowGap },
+            position: { x: colX, y: currentY },
             size: { ...textSize },
             zIndex: baseTime + i * 3 + 2,
             createdAt: baseTime,
