@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { X } from 'lucide-react';
+import { shallow } from 'zustand/shallow';
 
 const MINIMAP_WIDTH = 300;
 const MINIMAP_HEIGHT = 200;
@@ -10,9 +11,38 @@ const MIN_VIEWPORT_SIZE = 20;
 
 export const Minimap: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { objects, viewport, zoomCanvas, setViewport, isMinimapVisible, toggleMinimap } = useCanvasStore();
+  const { objects, viewport, zoomCanvas, setViewport, isMinimapVisible, toggleMinimap } = useCanvasStore(
+    (state) => ({
+      objects: state.objects,
+      viewport: state.viewport,
+      zoomCanvas: state.zoomCanvas,
+      setViewport: state.setViewport,
+      isMinimapVisible: state.isMinimapVisible,
+      toggleMinimap: state.toggleMinimap,
+    }),
+    shallow
+  );
   const isDragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const dragRafRef = useRef<number | null>(null);
+  const pendingViewportRef = useRef<{ x: number; y: number } | null>(null);
+
+  const scheduleViewportUpdate = React.useCallback((nextViewport: { x: number; y: number }) => {
+    pendingViewportRef.current = nextViewport;
+
+    if (dragRafRef.current != null) {
+      return;
+    }
+
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = null;
+      const pendingViewport = pendingViewportRef.current;
+      pendingViewportRef.current = null;
+      if (pendingViewport) {
+        setViewport(pendingViewport);
+      }
+    });
+  }, [setViewport]);
 
   // Helper to get transformation parameters
   const getTransformParams = () => {
@@ -58,7 +88,7 @@ export const Minimap: React.FC = () => {
     return { originX, originY, scale, offsetX, offsetY, vx, vy, vw, vh };
   };
 
-  const draw = () => {
+  const draw = React.useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -112,17 +142,19 @@ export const Minimap: React.FC = () => {
     // Fill viewport slightly
     ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'; // More visible fill
     ctx.fillRect(drawVX, drawVY, drawVW, drawVH);
-  };
+  }, [objects, viewport]);
 
   useEffect(() => {
-    let animationFrameId: number;
-    const renderLoop = () => {
-      draw();
-      animationFrameId = requestAnimationFrame(renderLoop);
+    draw();
+  }, [draw]);
+
+  useEffect(() => {
+    return () => {
+      if (dragRafRef.current != null) {
+        cancelAnimationFrame(dragRafRef.current);
+      }
     };
-    renderLoop();
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [objects, viewport]);
+  }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const canvas = canvasRef.current;
@@ -170,7 +202,7 @@ export const Minimap: React.FC = () => {
         const newViewportX = -worldX * viewport.zoom + window.innerWidth / 2;
         const newViewportY = -worldY * viewport.zoom + window.innerHeight / 2;
         
-        setViewport({ x: newViewportX, y: newViewportY });
+        scheduleViewportUpdate({ x: newViewportX, y: newViewportY });
         
         isDragging.current = true;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -204,7 +236,7 @@ export const Minimap: React.FC = () => {
     const newViewportX = -worldX * viewport.zoom + window.innerWidth / 2;
     const newViewportY = -worldY * viewport.zoom + window.innerHeight / 2;
     
-    setViewport({ x: newViewportX, y: newViewportY });
+    scheduleViewportUpdate({ x: newViewportX, y: newViewportY });
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -225,6 +257,7 @@ export const Minimap: React.FC = () => {
 
   return (
     <div 
+      data-canvas-ui="true"
       className="absolute bottom-6 right-6 z-50 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-xl overflow-hidden group"
       style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }}
       onWheel={handleWheel}
@@ -232,6 +265,7 @@ export const Minimap: React.FC = () => {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
+      onDoubleClick={(e) => e.stopPropagation()}
     >
       <button
         className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white/70 hover:text-white hover:bg-black/80 transition-all opacity-0 group-hover:opacity-100 z-10"

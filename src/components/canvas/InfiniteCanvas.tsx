@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useGesture } from '@use-gesture/react';
+import { shallow } from 'zustand/shallow';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { GridBackground } from './GridBackground';
 import { CanvasToolbar } from './CanvasToolbar';
@@ -12,10 +13,12 @@ import { generateVideoThumbnail } from '../../utils/media';
 
 import { ContextMenu } from './ContextMenu';
 import { GroupToolbar } from './GroupToolbar';
+import { LayoutPanel } from './LayoutPanel';
 import { CanvasObject } from '../../types/canvas';
 import { Minimap } from './Minimap';
 
 import { parseLargeHtmlFile } from '../../utils/largeFileImport';
+import { placeIncomingObject, placeIncomingObjects } from '../../utils/autoLayout';
 
 const ObjectLayer = React.memo(({ objects }: { objects: CanvasObject[] }) => {
   return (
@@ -27,18 +30,24 @@ const ObjectLayer = React.memo(({ objects }: { objects: CanvasObject[] }) => {
   );
 });
 
+const VIEWPORT_CULL_BUFFER = 1200;
+const VIEWPORT_RECULL_MARGIN = 400;
+const VIEWPORT_RECULL_ZOOM_DELTA = 0.12;
+
 export const InfiniteCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { 
-    viewport, 
-    setViewport, 
-    moveViewport, 
+  const {
+    activePageId,
+    viewport,
+    setViewport,
+    moveViewport,
     addObject,
     addObjects,
     removeObject,
     selectedObjectIds,
     selectObjects,
     editingObjectId,
+    setEditingObjectId,
     objects,
     updateObjects,
     groupSelected,
@@ -46,7 +55,29 @@ export const InfiniteCanvas: React.FC = () => {
     undo,
     redo,
     loadCanvas
-  } = useCanvasStore();
+  } = useCanvasStore(
+    (state) => ({
+      activePageId: state.activePageId,
+      viewport: state.viewport,
+      setViewport: state.setViewport,
+      moveViewport: state.moveViewport,
+      addObject: state.addObject,
+      addObjects: state.addObjects,
+      removeObject: state.removeObject,
+      selectedObjectIds: state.selectedObjectIds,
+      selectObjects: state.selectObjects,
+      editingObjectId: state.editingObjectId,
+      setEditingObjectId: state.setEditingObjectId,
+      objects: state.objects,
+      updateObjects: state.updateObjects,
+      groupSelected: state.groupSelected,
+      ungroupObject: state.ungroupObject,
+      undo: state.undo,
+      redo: state.redo,
+      loadCanvas: state.loadCanvas,
+    }),
+    shallow
+  );
 
   // Selection Box State
   const [selectionBox, setSelectionBox] = useState<{ start: { x: number, y: number }, current: { x: number, y: number } } | null>(null);
@@ -56,6 +87,7 @@ export const InfiniteCanvas: React.FC = () => {
 
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [isLoading, setIsLoading] = useState(false);
+  const [cullViewport, setCullViewport] = useState(viewport);
   
   // Track which objects have been restored from IDB to prevent infinite loops
   const restoredObjectIds = useRef<Set<string>>(new Set());
@@ -129,7 +161,7 @@ export const InfiniteCanvas: React.FC = () => {
     };
 
     restoreMedia();
-  }, [objects, updateObjects]);
+  }, [activePageId, objects.length, updateObjects]);
 
   useEffect(() => {
     const handleResize = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight });
@@ -137,16 +169,40 @@ export const InfiniteCanvas: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    const cullLeft = -cullViewport.x / cullViewport.zoom - VIEWPORT_CULL_BUFFER;
+    const cullTop = -cullViewport.y / cullViewport.zoom - VIEWPORT_CULL_BUFFER;
+    const cullRight = (windowSize.width - cullViewport.x) / cullViewport.zoom + VIEWPORT_CULL_BUFFER;
+    const cullBottom = (windowSize.height - cullViewport.y) / cullViewport.zoom + VIEWPORT_CULL_BUFFER;
+
+    const visibleLeft = -viewport.x / viewport.zoom;
+    const visibleTop = -viewport.y / viewport.zoom;
+    const visibleRight = (windowSize.width - viewport.x) / viewport.zoom;
+    const visibleBottom = (windowSize.height - viewport.y) / viewport.zoom;
+
+    const shouldRecull =
+      Math.abs(viewport.zoom - cullViewport.zoom) > VIEWPORT_RECULL_ZOOM_DELTA ||
+      visibleLeft < cullLeft + VIEWPORT_RECULL_MARGIN ||
+      visibleTop < cullTop + VIEWPORT_RECULL_MARGIN ||
+      visibleRight > cullRight - VIEWPORT_RECULL_MARGIN ||
+      visibleBottom > cullBottom - VIEWPORT_RECULL_MARGIN;
+
+    if (shouldRecull) {
+      setCullViewport(viewport);
+    }
+  }, [viewport, cullViewport, windowSize]);
+
+  const selectedIdSet = React.useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
+
   const visibleObjects = React.useMemo(() => {
-    const buffer = 500; // Extra pixels around viewport
-    const visibleLeft = -viewport.x / viewport.zoom - buffer;
-    const visibleTop = -viewport.y / viewport.zoom - buffer;
-    const visibleRight = (windowSize.width - viewport.x) / viewport.zoom + buffer;
-    const visibleBottom = (windowSize.height - viewport.y) / viewport.zoom + buffer;
+    const visibleLeft = -cullViewport.x / cullViewport.zoom - VIEWPORT_CULL_BUFFER;
+    const visibleTop = -cullViewport.y / cullViewport.zoom - VIEWPORT_CULL_BUFFER;
+    const visibleRight = (windowSize.width - cullViewport.x) / cullViewport.zoom + VIEWPORT_CULL_BUFFER;
+    const visibleBottom = (windowSize.height - cullViewport.y) / cullViewport.zoom + VIEWPORT_CULL_BUFFER;
 
     return objects.filter(obj => {
       // Always show selected objects to avoid glitches
-      if (selectedObjectIds.includes(obj.id)) return true;
+      if (selectedIdSet.has(obj.id)) return true;
       
       const objRight = obj.position.x + obj.size.width;
       const objBottom = obj.position.y + obj.size.height;
@@ -158,7 +214,7 @@ export const InfiniteCanvas: React.FC = () => {
         obj.position.y <= visibleBottom
       );
     });
-  }, [objects, viewport, windowSize, selectedObjectIds]);
+  }, [objects, cullViewport, windowSize, selectedIdSet]);
 
   // Handle Keyboard Shortcuts (Delete/Backspace, L for Arrange)
   useEffect(() => {
@@ -423,9 +479,10 @@ export const InfiniteCanvas: React.FC = () => {
                     // If on different machine, fileId won't work.
                     // But we can't solve cross-machine copy without uploading files.
                     // For local "Real Data Copy" within same app, this works.
-                    
-                    addObjects(newObjects);
-                    selectObjects(newObjects.map(o => o.id));
+
+                    const placedObjects = placeIncomingObjects(useCanvasStore.getState().objects, newObjects);
+                    addObjects(placedObjects);
+                    selectObjects(placedObjects.map(o => o.id));
                     return; // Done
                 }
             } catch (err) {
@@ -446,7 +503,7 @@ export const InfiniteCanvas: React.FC = () => {
       // 3. Handle Plain Text
       const text = clipboardData.getData('text/plain');
       if (text) {
-          addObject({
+          const placedObject = placeIncomingObject(useCanvasStore.getState().objects, {
               id: uuidv4(),
               type: 'text',
               position: { x: centerX, y: centerY },
@@ -460,6 +517,7 @@ export const InfiniteCanvas: React.FC = () => {
               fontStyle: 'normal',
               color: '#ffffff'
           });
+          addObject(placedObject);
       }
     };
 
@@ -481,7 +539,7 @@ export const InfiniteCanvas: React.FC = () => {
       
       if (fileType === 'text') {
         const text = await file.text();
-        addObject({
+        const textObject = placeIncomingObject(useCanvasStore.getState().objects, {
           id,
           type: 'text',
           position: { x, y },
@@ -495,6 +553,7 @@ export const InfiniteCanvas: React.FC = () => {
           fontStyle: 'normal',
           color: '#ffffff'
         });
+        addObject(textObject);
         return;
       }
 
@@ -509,7 +568,7 @@ export const InfiniteCanvas: React.FC = () => {
         // Load image to get dimensions
         const img = new Image();
         img.onload = () => {
-           addObject({
+           const imageObject = placeIncomingObject(useCanvasStore.getState().objects, {
             id,
             type: 'image',
             position: { x, y },
@@ -521,6 +580,7 @@ export const InfiniteCanvas: React.FC = () => {
             fileId,
             alt: file.name
           });
+          addObject(imageObject);
         };
         img.src = src;
       } else if (fileType === 'video') {
@@ -535,7 +595,7 @@ export const InfiniteCanvas: React.FC = () => {
            console.warn('Failed to generate video thumbnail', e);
          }
 
-         addObject({
+         const videoObject = placeIncomingObject(useCanvasStore.getState().objects, {
             id,
             type: 'video',
             position: { x, y },
@@ -549,6 +609,7 @@ export const InfiniteCanvas: React.FC = () => {
             thumbnailFileId,
             currentTime: 0
           });
+         addObject(videoObject);
       }
     } catch (err) {
       console.error("Failed to process file", err);
@@ -842,13 +903,27 @@ export const InfiniteCanvas: React.FC = () => {
                   const doc = parser.parseFromString(text, 'text/html');
                   const viewportEl = doc.querySelector('script#datapureref-viewport[type="application/json"]');
                   const objectEls = Array.from(doc.querySelectorAll('script[data-datapureref-object="1"][type="application/json"]'));
+                  const mediaMap = new Map(
+                    Array.from(doc.querySelectorAll('script[data-datapureref-media="1"][data-media-id]')).map((el) => [
+                      el.getAttribute('data-media-id') || '',
+                      el.textContent || ''
+                    ])
+                  );
 
                   if (viewportEl?.textContent) {
                     const parsedViewport = JSON.parse(viewportEl.textContent);
                     const parsedObjects = objectEls
                       .map((el) => {
                         try {
-                          return el.textContent ? (JSON.parse(el.textContent) as CanvasObject) : null;
+                          if (!el.textContent) return null;
+                          const parsedObject = JSON.parse(el.textContent) as any;
+                          if (parsedObject?.exportMediaId && !parsedObject.src) {
+                            parsedObject.src = mediaMap.get(parsedObject.exportMediaId) || '';
+                          }
+                          if (parsedObject?.type === 'video' && parsedObject?.exportThumbnailMediaId && !parsedObject.thumbnail) {
+                            parsedObject.thumbnail = mediaMap.get(parsedObject.exportThumbnailMediaId);
+                          }
+                          return parsedObject as CanvasObject;
                         } catch {
                           return null;
                         }
@@ -1115,14 +1190,10 @@ export const InfiniteCanvas: React.FC = () => {
   );
 
   const handleDoubleClick = (e: React.MouseEvent) => {
-    // Only add text if clicking on the background (not on an object)
-    if (e.target !== containerRef.current && e.target !== containerRef.current?.firstChild) {
-      // Check if clicking on grid background (which is usually the first child or behind everything)
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-canvas-ui="true"]')) {
+      return;
     }
-
-    // A better check might be to see if the target has a specific class or if we are not clicking on an object
-    // For now, if we click on an object, stopPropagation in CanvasObjectRenderer handles it.
-    // So if we reach here, it's likely the background.
 
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -1132,7 +1203,7 @@ export const InfiniteCanvas: React.FC = () => {
     
     const { x, y } = screenToCanvas(mouseX, mouseY, viewport);
 
-    addObject({
+    const placedTextObject = placeIncomingObject(useCanvasStore.getState().objects, {
       id: uuidv4(),
       type: 'text',
       position: { x, y },
@@ -1146,6 +1217,8 @@ export const InfiniteCanvas: React.FC = () => {
       fontStyle: 'normal',
       color: '#ffffff'
     });
+    addObject(placedTextObject);
+    setEditingObjectId(placedTextObject.id);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -1156,7 +1229,7 @@ export const InfiniteCanvas: React.FC = () => {
   return (
     <div 
       ref={containerRef}
-      className="canvas-container relative w-full h-screen overflow-hidden bg-[#1a1a1a] select-none"
+      className="canvas-container relative w-full h-screen overflow-hidden bg-[#050c16] select-none"
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onDrop={handleDrop}
@@ -1169,13 +1242,14 @@ export const InfiniteCanvas: React.FC = () => {
       <GridBackground viewport={viewport} />
       <CanvasToolbar />
       <GroupToolbar />
+      <LayoutPanel />
       <Minimap />
       
       {/* Object Layer */}
       <div 
         className="absolute top-0 left-0 origin-top-left will-change-transform"
         style={{
-          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`
+          transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`
         }}
       >
         <ObjectLayer objects={visibleObjects} />

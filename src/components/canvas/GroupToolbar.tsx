@@ -16,7 +16,11 @@ export const GroupToolbar: React.FC = () => {
   if (!selectedObject || selectedObject.type !== 'group') return null;
 
   return (
-    <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-2 bg-white rounded-lg shadow-lg px-3 py-1.5 text-gray-700 select-none border border-gray-200">
+    <div
+        data-canvas-ui="true"
+        className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-2 bg-white rounded-lg shadow-lg px-3 py-1.5 text-gray-700 select-none border border-gray-200"
+        onDoubleClick={(e) => e.stopPropagation()}
+    >
         <span className="text-xs font-semibold mr-2 text-gray-500">Group</span>
         
         <div className="h-4 w-px bg-gray-300 mx-1" />

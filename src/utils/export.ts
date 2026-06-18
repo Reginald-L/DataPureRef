@@ -1,6 +1,11 @@
 import { CanvasObject, Viewport } from '../types/canvas';
 import { getFile } from './storage';
 
+type ExportCanvasObject = CanvasObject & {
+  exportMediaId?: string;
+  exportThumbnailMediaId?: string;
+};
+
 const blobToBase64 = (blob: Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -27,6 +32,30 @@ const escapeJsonForHtmlScriptTag = (json: string): string => {
 
 export const generateExportHtml = async (objects: CanvasObject[], viewport: Viewport): Promise<Blob> => {
   const parts: string[] = [];
+  const mediaParts: string[] = [];
+  const objectParts: string[] = [];
+  const embeddedMedia = new Map<string, string>();
+  let nextMediaId = 0;
+
+  const ensureEmbeddedMedia = async (fileId?: string): Promise<string | undefined> => {
+    if (!fileId) return undefined;
+
+    const existingId = embeddedMedia.get(fileId);
+    if (existingId) {
+      return existingId;
+    }
+
+    const blob = await getFile(fileId);
+    if (!blob) return undefined;
+
+    const mediaId = `media_${nextMediaId++}`;
+    const base64 = await blobToBase64(blob);
+    embeddedMedia.set(fileId, mediaId);
+    mediaParts.push(
+      `<script type="text/plain" data-datapureref-media="1" data-media-id="${mediaId}">${escapeJsonForHtmlScriptTag(base64)}</script>\n`
+    );
+    return mediaId;
+  };
 
   parts.push(`
 <!DOCTYPE html>
@@ -39,7 +68,7 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #1a1a1a;
+            background-color: #050c16;
             color: white;
             font-family: system-ui, -apple-system, sans-serif;
             user-select: none;
@@ -78,23 +107,59 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
             background-color: rgba(0, 0, 0, 0.3);
             border-radius: 4px;
         }
-        .obj-image img, .obj-video video {
+        .obj-image img, .obj-video img, .obj-video video {
             width: 100%;
             height: 100%;
             object-fit: contain;
-            /* Allow interaction with video controls */
+            display: block;
         }
         .obj-image img {
             pointer-events: none;
         }
-        /* Grid Pattern */
+        .video-shell {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: #000;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        .video-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.8);
+            background: linear-gradient(135deg, #111, #222);
+            font-size: 14px;
+        }
+        .video-play {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 56px;
+            height: 56px;
+            border-radius: 9999px;
+            border: 0;
+            background: rgba(0, 0, 0, 0.45);
+            color: #fff;
+            cursor: pointer;
+            font-size: 22px;
+        }
         .grid-pattern {
             width: 100%;
             height: 100%;
-            background-image: 
-                linear-gradient(to right, #333 1px, transparent 1px),
-                linear-gradient(to bottom, #333 1px, transparent 1px);
-            background-size: 50px 50px;
+            background-color: #050c16;
+            background-image:
+                radial-gradient(circle, rgba(148, 163, 184, 0.12) 0.7px, transparent 1px),
+                radial-gradient(circle, rgba(96, 165, 250, 0.16) 1px, transparent 1.35px),
+                linear-gradient(to right, rgba(59, 130, 246, 0.08) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(59, 130, 246, 0.08) 1px, transparent 1px),
+                radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.12), transparent 28%),
+                radial-gradient(circle at 82% 4%, rgba(37, 99, 235, 0.18), transparent 34%);
+            background-size: 14px 14px, 28px 28px, 144px 144px, 144px 144px, 100% 100%, 100% 100%;
         }
     </style>
 </head>
@@ -110,70 +175,103 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
     </div>
 `);
 
-  let processedCount = 0;
   parts.push(
     `<script id="datapureref-viewport" type="application/json">${escapeJsonForHtmlScriptTag(JSON.stringify(viewport))}</script>\n`
   );
 
+  let processedCount = 0;
   for (const obj of objects) {
     processedCount++;
     if (processedCount % 2 === 0) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    const tempObj = JSON.parse(JSON.stringify(obj));
+    const exportObject: ExportCanvasObject = JSON.parse(JSON.stringify(obj));
 
-    if ((tempObj.type === 'image' || tempObj.type === 'video') && tempObj.fileId) {
+    if (exportObject.type === 'image' && exportObject.fileId) {
       try {
-        const blob = await getFile(tempObj.fileId);
-        if (blob) {
-          const base64 = await blobToBase64(blob);
-          tempObj.src = base64;
+        const mediaId = await ensureEmbeddedMedia(exportObject.fileId);
+        if (mediaId) {
+          exportObject.exportMediaId = mediaId;
+          exportObject.src = '';
         }
       } catch (err) {
-        console.error(`Failed to embed media for object ${tempObj.id}`, err);
+        console.error(`Failed to embed image for object ${exportObject.id}`, err);
       }
     }
 
-    parts.push(
-      `<script type="application/json" data-datapureref-object="1">${escapeJsonForHtmlScriptTag(JSON.stringify(tempObj))}</script>\n`
+    if (exportObject.type === 'video') {
+      try {
+        if (exportObject.fileId) {
+          const mediaId = await ensureEmbeddedMedia(exportObject.fileId);
+          if (mediaId) {
+            exportObject.exportMediaId = mediaId;
+            exportObject.src = '';
+          }
+        }
+
+        if (exportObject.thumbnailFileId) {
+          const thumbnailMediaId = await ensureEmbeddedMedia(exportObject.thumbnailFileId);
+          if (thumbnailMediaId) {
+            exportObject.exportThumbnailMediaId = thumbnailMediaId;
+            delete exportObject.thumbnail;
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to embed video for object ${exportObject.id}`, err);
+      }
+    }
+
+    objectParts.push(
+      `<script type="application/json" data-datapureref-object="1">${escapeJsonForHtmlScriptTag(JSON.stringify(exportObject))}</script>\n`
     );
   }
+
+  parts.push(...mediaParts);
+  parts.push(...objectParts);
 
   parts.push(`
     <script>
         try {
             const viewport = JSON.parse(document.getElementById('datapureref-viewport')?.textContent || '{"x":0,"y":0,"zoom":1}');
-            
-            // Lazy load objects to avoid OOM during parsing
             const objectScripts = document.querySelectorAll('script[data-datapureref-object="1"]');
-            const objects = [];
-            
-            // Intersection Observer for Lazy Loading Media
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const el = entry.target;
-                        const src = el.dataset.src;
-                        if (src) {
-                            if (el.tagName === 'IMG') el.src = src;
-                            else if (el.tagName === 'VIDEO') el.src = src;
-                            el.removeAttribute('data-src');
-                            observer.unobserve(el);
-                        }
-                    }
-                });
-            }, { root: document.getElementById('container'), rootMargin: '500px' }); // Preload margin
+            const mediaScripts = new Map(
+                Array.from(document.querySelectorAll('script[data-datapureref-media="1"]')).map((el) => [el.dataset.mediaId, el])
+            );
 
-            const state = { objects, viewport };
-            
             const container = document.getElementById('container');
             const canvas = document.getElementById('canvas');
             const grid = document.getElementById('grid');
             const gridPattern = grid.querySelector('.grid-pattern');
             const loading = document.getElementById('loading');
 
-            // Chunked Parsing and Rendering
+            function resolveMediaData(mediaId, consume) {
+                if (!mediaId) return '';
+                const scriptEl = mediaScripts.get(mediaId);
+                if (!scriptEl) return '';
+                const value = scriptEl.textContent || '';
+                if (consume) {
+                    mediaScripts.delete(mediaId);
+                    scriptEl.remove();
+                }
+                return value;
+            }
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    const el = entry.target;
+                    const mediaId = el.getAttribute('data-media-id');
+                    const fallbackSrc = el.getAttribute('data-fallback-src') || '';
+                    const src = fallbackSrc || resolveMediaData(mediaId, false);
+                    if (src) {
+                        el.setAttribute('src', src);
+                        el.removeAttribute('data-fallback-src');
+                    }
+                    observer.unobserve(el);
+                });
+            }, { root: container, rootMargin: '500px' });
+
             let scriptIndex = 0;
             const CHUNK_SIZE = 50;
 
@@ -184,7 +282,6 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                         const el = objectScripts[i];
                         const obj = JSON.parse(el.textContent || 'null');
                         if (obj) {
-                            objects.push(obj);
                             renderObject(obj);
                         }
                     } catch (e) {
@@ -192,14 +289,12 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                     }
                 }
                 scriptIndex = limit;
-                
+
                 if (scriptIndex < objectScripts.length) {
                     loading.textContent = \`Loading \${Math.round((scriptIndex / objectScripts.length) * 100)}%...\`;
                     requestAnimationFrame(processChunk);
                 } else {
                     loading.style.display = 'none';
-                    state.objects.sort((a, b) => a.zIndex - b.zIndex); // Re-sort if needed (though we appended in order)
-                    // Note: DOM order is already correct if scripts are in order
                     updateTransform();
                 }
             }
@@ -223,17 +318,20 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                 } else if (obj.type === 'image') {
                     el.classList.add('obj-image');
                     const img = document.createElement('img');
-                    // Lazy Load Image
-                    img.dataset.src = obj.src;
+                    const fallbackSrc = obj.src || '';
+                    if (obj.exportMediaId) {
+                        img.setAttribute('data-media-id', obj.exportMediaId);
+                    }
+                    if (fallbackSrc) {
+                        img.setAttribute('data-fallback-src', fallbackSrc);
+                    }
                     observer.observe(img);
-                    
                     el.appendChild(img);
 
-                    // Double click to reset size
                     el.addEventListener('dblclick', (e) => {
                         e.stopPropagation();
                         const newImg = new Image();
-                        newImg.src = obj.src;
+                        newImg.src = img.currentSrc || img.getAttribute('src') || obj.src || resolveMediaData(obj.exportMediaId, false);
                         newImg.onload = () => {
                             obj.size.width = newImg.width;
                             obj.size.height = newImg.height;
@@ -243,13 +341,60 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                     });
                 } else if (obj.type === 'video') {
                     el.classList.add('obj-video');
-                    const video = document.createElement('video');
-                    // Lazy Load Video
-                    video.dataset.src = obj.src;
-                    video.controls = true;
-                    observer.observe(video);
-                    
-                    el.appendChild(video);
+                    const shell = document.createElement('div');
+                    shell.className = 'video-shell';
+
+                    let hasThumbnail = false;
+                    if (obj.exportThumbnailMediaId || obj.thumbnail) {
+                        const thumb = document.createElement('img');
+                        if (obj.exportThumbnailMediaId) {
+                            thumb.setAttribute('data-media-id', obj.exportThumbnailMediaId);
+                        }
+                        if (obj.thumbnail) {
+                            thumb.setAttribute('data-fallback-src', obj.thumbnail);
+                        }
+                        observer.observe(thumb);
+                        shell.appendChild(thumb);
+                        hasThumbnail = true;
+                    }
+
+                    if (!hasThumbnail) {
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'video-placeholder';
+                        placeholder.textContent = 'Click to load video';
+                        shell.appendChild(placeholder);
+                    }
+
+                    const playButton = document.createElement('button');
+                    playButton.className = 'video-play';
+                    playButton.type = 'button';
+                    playButton.textContent = '▶';
+
+                    const activateVideo = () => {
+                        const videoSrc = obj.src || resolveMediaData(obj.exportMediaId, true);
+                        if (!videoSrc) return;
+
+                        const video = document.createElement('video');
+                        video.controls = true;
+                        video.autoplay = true;
+                        video.preload = 'none';
+                        video.src = videoSrc;
+
+                        shell.innerHTML = '';
+                        shell.appendChild(video);
+                    };
+
+                    playButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        activateVideo();
+                    });
+                    shell.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        activateVideo();
+                    });
+
+                    shell.appendChild(playButton);
+                    el.appendChild(shell);
                 }
 
                 canvas.appendChild(el);
@@ -257,32 +402,35 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
 
             function updateTransform() {
                 canvas.style.transform = \`translate(\${viewport.x}px, \${viewport.y}px) scale(\${viewport.zoom})\`;
-                
-                // Update Grid
-                const gridSize = 50 * viewport.zoom;
-                const backgroundSize = \`\${gridSize}px \${gridSize}px\`;
-                const backgroundPosition = \`\${viewport.x}px \${viewport.y}px\`;
-                
-                gridPattern.style.backgroundSize = backgroundSize;
-                gridPattern.style.backgroundPosition = backgroundPosition;
+
+                const microDotSize = 14 * viewport.zoom;
+                const dotGridSize = 28 * viewport.zoom;
+                const majorGridSize = 144 * viewport.zoom;
+
+                gridPattern.style.backgroundSize = \`\${microDotSize}px \${microDotSize}px, \${dotGridSize}px \${dotGridSize}px, \${majorGridSize}px \${majorGridSize}px, \${majorGridSize}px \${majorGridSize}px, 100% 100%, 100% 100%\`;
+                gridPattern.style.backgroundPosition = [
+                    \`\${viewport.x * 0.18}px \${viewport.y * 0.18}px\`,
+                    \`\${viewport.x}px \${viewport.y}px\`,
+                    \`\${viewport.x}px \${viewport.y}px\`,
+                    \`\${viewport.x * 0.55}px \${viewport.y * 0.55}px\`,
+                    'center',
+                    'center'
+                ].join(', ');
             }
 
-            // Interaction State
             let isDragging = false;
             let lastMousePos = { x: 0, y: 0 };
 
-            // Prevent default browser zoom and autoscroll
             container.addEventListener('wheel', (e) => {
                 if (e.ctrlKey) e.preventDefault();
             }, { passive: false });
-            
+
             container.addEventListener('mousedown', (e) => {
                  if (e.button === 1) e.preventDefault();
             }, { passive: false });
 
-            // Pan Logic (Pointer Events for better compatibility)
             container.addEventListener('pointerdown', (e) => {
-                if (e.button === 1) { // Middle Click
+                if (e.button === 1) {
                     e.preventDefault();
                     isDragging = true;
                     lastMousePos = { x: e.clientX, y: e.clientY };
@@ -296,10 +444,10 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                     e.preventDefault();
                     const dx = e.clientX - lastMousePos.x;
                     const dy = e.clientY - lastMousePos.y;
-                    
+
                     viewport.x += dx;
                     viewport.y += dy;
-                    
+
                     lastMousePos = { x: e.clientX, y: e.clientY };
                     updateTransform();
                 }
@@ -313,9 +461,8 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                 }
             });
 
-            // Zoom Logic
             container.addEventListener('wheel', (e) => {
-                if (e.ctrlKey) e.preventDefault(); // Prevent browser zoom
+                if (e.ctrlKey) e.preventDefault();
                 e.preventDefault();
 
                 const zoomFactor = -e.deltaY * 0.001;
@@ -326,24 +473,17 @@ export const generateExportHtml = async (objects: CanvasObject[], viewport: View
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
 
-                // Canvas coordinates of mouse
                 const canvasX = (mouseX - viewport.x) / viewport.zoom;
                 const canvasY = (mouseY - viewport.y) / viewport.zoom;
 
-                // New viewport position
-                const newX = mouseX - canvasX * newZoom;
-                const newY = mouseY - canvasY * newZoom;
-
                 viewport.zoom = newZoom;
-                viewport.x = newX;
-                viewport.y = newY;
+                viewport.x = mouseX - canvasX * newZoom;
+                viewport.y = mouseY - canvasY * newZoom;
 
                 updateTransform();
             }, { passive: false });
 
-            // Initial Render
             requestAnimationFrame(processChunk);
-
         } catch (err) {
             console.error(err);
             document.body.innerHTML = '<div style="color:red; padding:20px;">Failed to load export: ' + err.message + '</div>';

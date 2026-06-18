@@ -8,6 +8,7 @@ interface ImportResult {
 
 export const parseLargeHtmlFile = async (file: File): Promise<ImportResult> => {
   const objects: CanvasObject[] = [];
+  const mediaMap = new Map<string, string>();
   let viewport: Viewport | null = null;
   
   const stream = file.stream();
@@ -61,12 +62,24 @@ export const parseLargeHtmlFile = async (file: File): Promise<ImportResult> => {
       // We focus on the NEW format here.
     }
     
+    const mediaMatch = line.match(/<script type="text\/plain" data-datapureref-media="1" data-media-id="([^"]+)">(.*?)<\/script>/);
+    if (mediaMatch && mediaMatch[1]) {
+      mediaMap.set(mediaMatch[1], mediaMatch[2] || '');
+      return;
+    }
+
     // Check for Object
     // <script type="application/json" data-datapureref-object="1">...</script>
     const objectMatch = line.match(/<script type="application\/json" data-datapureref-object="1">(.*?)<\/script>/);
     if (objectMatch && objectMatch[1]) {
       try {
-        const obj = JSON.parse(objectMatch[1]);
+        const obj = JSON.parse(objectMatch[1]) as any;
+        if (obj?.exportMediaId && !obj.src) {
+          obj.src = mediaMap.get(obj.exportMediaId) || '';
+        }
+        if (obj?.type === 'video' && obj?.exportThumbnailMediaId && !obj.thumbnail) {
+          obj.thumbnail = mediaMap.get(obj.exportThumbnailMediaId);
+        }
         if (obj) objects.push(obj);
       } catch (e) {
         console.error('Failed to parse object JSON', e);

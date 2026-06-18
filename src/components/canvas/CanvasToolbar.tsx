@@ -10,7 +10,11 @@ export const CanvasToolbar: React.FC = () => {
   const handleZoomOut = () => zoomCanvas(0.9);
 
   return (
-    <div className="absolute top-4 right-4 z-50 flex items-center gap-2 bg-white rounded-full shadow-lg px-3 py-1.5 text-gray-700 select-none">
+    <div
+      data-canvas-ui="true"
+      className="absolute top-4 right-4 z-50 flex items-center gap-2 bg-white rounded-full shadow-lg px-3 py-1.5 text-gray-700 select-none"
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       <button 
         onClick={handleZoomOut}
         className="p-1 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"

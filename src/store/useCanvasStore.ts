@@ -49,10 +49,13 @@ interface CanvasStore {
   groupSelected: () => void;
   ungroupObject: (id: string) => void;
   alignGroupChildren: (groupId: string, alignment: 'left' | 'center' | 'right') => void;
-  layoutSelectedObjects: (cols: number, gap?: number) => void;
+  layoutSelectedObjects: (cols: number, rows?: number, gap?: number) => void;
 
   isMinimapVisible: boolean;
   toggleMinimap: () => void;
+  isLayoutPanelOpen: boolean;
+  openLayoutPanel: () => void;
+  closeLayoutPanel: () => void;
 }
 
 const persistStorage = (() => {
@@ -113,8 +116,11 @@ export const useCanvasStore = create<CanvasStore>()(
       editingObjectId: null,
       history: { past: [], future: [] },
       isMinimapVisible: true,
+      isLayoutPanelOpen: false,
 
       toggleMinimap: () => set((state) => ({ isMinimapVisible: !state.isMinimapVisible })),
+      openLayoutPanel: () => set(() => ({ isLayoutPanelOpen: true })),
+      closeLayoutPanel: () => set(() => ({ isLayoutPanelOpen: false })),
 
       pushHistorySnapshot: () =>
         set((state) => ({
@@ -259,15 +265,8 @@ export const useCanvasStore = create<CanvasStore>()(
       setViewport: (viewport) => 
         set((state) => {
             const newViewport = { ...state.viewport, ...viewport };
-            // Sync to pages
-            const newPages = state.pages.map(p => 
-                p.id === state.activePageId 
-                ? { ...p, viewport: newViewport, updatedAt: Date.now() } 
-                : p
-            );
             return {
-                viewport: newViewport,
-                pages: newPages
+                viewport: newViewport
             };
         }),
 
@@ -278,14 +277,8 @@ export const useCanvasStore = create<CanvasStore>()(
                 x: state.viewport.x + dx,
                 y: state.viewport.y + dy,
             };
-            const newPages = state.pages.map(p => 
-                p.id === state.activePageId 
-                ? { ...p, viewport: newViewport, updatedAt: Date.now() } 
-                : p
-            );
             return {
-                viewport: newViewport,
-                pages: newPages
+                viewport: newViewport
             };
         }),
 
@@ -296,14 +289,8 @@ export const useCanvasStore = create<CanvasStore>()(
               ...state.viewport,
               zoom: newZoom
           };
-          const newPages = state.pages.map(p => 
-            p.id === state.activePageId 
-            ? { ...p, viewport: newViewport, updatedAt: Date.now() } 
-            : p
-          );
           return {
-            viewport: newViewport,
-            pages: newPages
+            viewport: newViewport
           };
         }),
 
@@ -652,7 +639,7 @@ export const useCanvasStore = create<CanvasStore>()(
           };
         }),
 
-      layoutSelectedObjects: (cols, gap = 20) =>
+      layoutSelectedObjects: (cols, _rows, gap = 20) =>
         set((state) => {
           const selectedIds = state.selectedObjectIds;
           if (selectedIds.length === 0) return {};
@@ -725,7 +712,8 @@ export const useCanvasStore = create<CanvasStore>()(
         viewport: state.viewport,
         pages: state.pages,
         activePageId: state.activePageId,
-        isMinimapVisible: state.isMinimapVisible
+        isMinimapVisible: state.isMinimapVisible,
+        isLayoutPanelOpen: state.isLayoutPanelOpen
       }),
       onRehydrateStorage: () => (state) => {
         // Migration: If we have objects but no pages (legacy data), init pages

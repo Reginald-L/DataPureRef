@@ -12,26 +12,27 @@ DataPureRef is a high-performance infinite canvas application based on React, de
 
 - **♾️ Infinite Canvas & Navigation**
   - Supports unlimited panning and zooming.
-  - **Visual Minimap**: Real-time overview of the global view, supports dragging viewport for quick positioning, wheel zooming, click to jump. Supports minimizing and restoring via context menu.
-  - Optimized rendering performance for handling large numbers of elements.
-  - Grid background for alignment assistance.
+  - **Visual Minimap**: Real-time overview of the full canvas with drag-to-navigate, wheel zoom, click-to-jump, hide/show controls, and restore from the context menu.
+  - **Performance-Oriented Rendering**: Viewport culling, reduced state churn, and on-demand redraws keep panning, zooming, and minimap interaction smooth even with many elements.
+  - **Blueprint-Style Background**: A dark blue board with dot-grid texture and subtle atmosphere helps content stand out without feeling flat.
 
 - **📁 Multimedia Management**
-  - **Text**: Supports rich text editing, text box height automatically adapts to content.
-  - **Images & Videos**: Supports drag-and-drop upload, free scaling and moving.
-  - **Smart Import**: Supports **folder drag-and-drop import**, automatically identifying image, video, and text files in the directory.
-  - **Performance Optimization**: Automatically generates thumbnails for video files, significantly improving rendering smoothness in scenarios with many videos.
+  - **Text**: Double-click any empty canvas area to create a text box and start typing immediately.
+  - **Images & Videos**: Supports drag-and-drop upload, free resize/move, and double-click to restore the original aspect ratio quickly.
+  - **Smart Import**: Supports **folder drag-and-drop import**, automatically identifying image, video, and text files in a directory.
+  - **Media Optimization**: Automatically generates video thumbnails, and exported pages load heavy media lazily to reduce memory pressure.
 
 - **🎮 Efficient Interaction**
-  - **Box Selection**: Hold `Shift` key and drag to box select multiple objects.
-  - **Grid Layout**: After selecting multiple objects, use "Layout Grid" in the right-click menu to quickly arrange them using a visual selector.
-  - **Auto Arrange**: Select multiple objects and press `L` key to automatically sort by name and arrange neatly.
-  - **Quick Reset**: Double-click image or video to quickly restore original aspect ratio/size.
-  - **Context Menu**: Provides quick access to global functions (e.g., Export, Show Minimap, Layout Adjustment).
+  - **Multi-Selection**: Hold `Shift` and drag to box-select multiple objects, use `Shift + Click` to add to selection, or `Ctrl + A` to select all.
+  - **Smart Placement**: Newly created or imported items snap into cleaner positions and try to avoid overlapping existing content.
+  - **Grid Layout Panel**: Open `Layout Panel` from the context menu to apply the default `6 x 6` layout or customize `Cols / Rows / Gap`.
+  - **Auto Arrange**: Select multiple objects and press `L` to sort by name and arrange them neatly.
+  - **Context Menu**: Provides quick access to page management, layout actions, HTML export, and minimap visibility.
 
 - **💾 Data Security & Export**
-  - **Auto Save**: Local persistent storage based on IndexedDB, no data loss on page refresh (including large video files).
-  - **Independent Export**: Supports one-click export of current canvas as a **single HTML file**. All images and videos are embedded as Base64, requiring no external dependencies, and can be interacted with (zoom, pan, play) directly in the browser.
+  - **Auto Save**: Local persistent storage powered by IndexedDB prevents data loss after refresh, including large video assets.
+  - **Single-File Export**: Export the current canvas as a standalone **HTML file** that opens directly in the browser with pan, zoom, and playback support.
+  - **Large-Canvas Export Optimization**: Exported files separate metadata from media payloads and restore heavy content on demand, reducing the chance of `Out of Memory` on large boards.
 
 ![example.png](assert/EXAMPLE.png)
 
@@ -87,9 +88,9 @@ DataPureRef is a high-performance infinite canvas application based on React, de
 | **Resize** | Drag the **Control Handles** around the selected object |
 | **Reset Size** | **Double Click** image or video object |
 | **Auto Arrange** | Select multiple objects, press **L** key to align and arrange automatically |
-| **Grid Layout** | Select multiple objects, **Right Click** -> **Layout Grid**, select rows/cols in the visual grid picker to arrange |
-| **Global Menu** | **Right Click** on empty canvas area to Export, Show Minimap, or Adjust Layout |
-| **Add Text** | Click **T** icon in the bottom toolbar |
+| **Grid Layout** | Select multiple objects, **Right Click** -> **Layout** -> **Open Layout Panel**; default is `6 x 6`, and `Cols / Rows / Gap` can be customized |
+| **Global Menu** | **Right Click** on empty canvas area to manage pages, export, show/hide minimap, or open the layout panel |
+| **Add Text** | **Double Click** an empty area on the canvas, or click the **T** icon in the bottom toolbar; the new text box is focused immediately |
 
 
 ## 🤝 Contribution
