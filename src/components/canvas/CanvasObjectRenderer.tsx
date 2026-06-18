@@ -8,6 +8,33 @@ import { TextRenderer } from './renderers/TextRenderer';
 import { GroupRenderer } from './GroupRenderer';
 import { cn } from '../../lib/utils';
 
+const IMAGE_THUMBNAIL_MAX_WIDTH = 420;
+const IMAGE_THUMBNAIL_MAX_HEIGHT = 320;
+
+const isSameSize = (
+  a: { width: number; height: number },
+  b: { width: number; height: number },
+  tolerance = 1
+) => Math.abs(a.width - b.width) <= tolerance && Math.abs(a.height - b.height) <= tolerance;
+
+const fitImageToThumbnail = (size: { width: number; height: number }) => {
+  const scale = Math.min(
+    IMAGE_THUMBNAIL_MAX_WIDTH / size.width,
+    IMAGE_THUMBNAIL_MAX_HEIGHT / size.height,
+    1
+  );
+
+  return {
+    width: Math.round(size.width * scale),
+    height: Math.round(size.height * scale),
+  };
+};
+
+const isExpandedImageObject = (object: CanvasObject) =>
+  object.type === 'image' &&
+  !!object.naturalSize &&
+  isSameSize(object.size, object.naturalSize);
+
 interface ResizeHandleProps {
   cursor: string;
   onResize: (delta: [number, number], isFirst: boolean) => void;
@@ -44,12 +71,14 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ cursor, onResize, className
 
 interface CanvasObjectRendererProps {
   object: CanvasObject;
+  stackIndex?: number;
 }
 
-const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ object }) => {
+const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ object, stackIndex = 1 }) => {
   // Use selective selectors to avoid unnecessary re-renders when viewport changes
   const isSelected = useCanvasStore((state) => state.selectedObjectIds.includes(object.id));
   const isEditing = useCanvasStore((state) => state.editingObjectId === object.id);
+  const isExpandedImage = isExpandedImageObject(object);
   
   const updateObject = useCanvasStore((state) => state.updateObject);
   const updateObjectTransient = useCanvasStore((state) => state.updateObjectTransient);
@@ -234,19 +263,60 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
           pushHistorySnapshot();
           setEditingObjectId(object.id);
         } else if (object.type === 'image') {
-          // Reset image to original size
           const imgObject = object as ImageObject;
+          const toggleImageSize = (naturalSize: { width: number; height: number }) => {
+            const currentSize = object.size;
+            const isAtNaturalSize = isSameSize(currentSize, naturalSize);
+
+            if (!isAtNaturalSize) {
+              const currentObjects = useCanvasStore.getState().objects;
+              const topZIndex = currentObjects.reduce((max, currentObject) => {
+                if (currentObject.id === object.id) {
+                  return max;
+                }
+                return Math.max(max, currentObject.zIndex);
+              }, object.zIndex);
+
+              updateObject(object.id, {
+                size: naturalSize,
+                naturalSize,
+                thumbnailSize: {
+                  width: Math.round(currentSize.width),
+                  height: Math.round(currentSize.height),
+                },
+                zIndex: topZIndex + 1,
+              });
+              return;
+            }
+
+            const fallbackThumbnailSize = fitImageToThumbnail(naturalSize);
+            const thumbnailSize =
+              imgObject.thumbnailSize && !isSameSize(imgObject.thumbnailSize, naturalSize)
+                ? imgObject.thumbnailSize
+                : fallbackThumbnailSize;
+
+            updateObject(object.id, {
+              size: thumbnailSize,
+              naturalSize,
+              thumbnailSize,
+            });
+          };
+
+          if (imgObject.naturalSize) {
+            toggleImageSize(imgObject.naturalSize);
+            return;
+          }
+
           const img = new Image();
           img.src = imgObject.src;
           img.onload = () => {
-             updateObject(object.id, {
-               size: { width: img.width, height: img.height }
-             });
+            toggleImageSize({ width: img.width, height: img.height });
           };
         }
       }}
       className={cn(
         "absolute touch-none select-none box-border transition-shadow group",
+        isExpandedImage && "ring-2 ring-blue-300/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_24px_80px_rgba(18,86,204,0.35)]",
         isSelected && !isEditing && "ring-2 ring-blue-500 shadow-lg",
       )}
       style={{
@@ -254,7 +324,7 @@ const CanvasObjectRendererComponent: React.FC<CanvasObjectRendererProps> = ({ ob
         top: object.position.y,
         width: object.size.width,
         height: object.size.height,
-        zIndex: object.zIndex,
+        zIndex: stackIndex,
         touchAction: 'none'
       }}
     >

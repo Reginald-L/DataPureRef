@@ -9,9 +9,11 @@ interface GroupRendererProps {
 }
 
 export const GroupRenderer: React.FC<GroupRendererProps> = ({ object }) => {
+  const sortedChildren = [...object.children].sort((a, b) => a.zIndex - b.zIndex);
+
   return (
     <div className="relative w-full h-full">
-      {object.children.map((child) => (
+      {sortedChildren.map((child, index) => (
         <div
           key={child.id}
           className="absolute"
@@ -20,7 +22,7 @@ export const GroupRenderer: React.FC<GroupRendererProps> = ({ object }) => {
             top: child.position.y,
             width: child.size.width,
             height: child.size.height,
-            zIndex: child.zIndex,
+            zIndex: index + 1,
           }}
         >
           {child.type === 'image' && <ImageRenderer object={child as any} />}

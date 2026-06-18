@@ -18,7 +18,7 @@ DataPureRef is a high-performance infinite canvas application based on React, de
 
 - **📁 Multimedia Management**
   - **Text**: Double-click any empty canvas area to create a text box and start typing immediately.
-  - **Images & Videos**: Supports drag-and-drop upload, free resize/move, and double-click to restore the original aspect ratio quickly.
+  - **Images & Videos**: Supports drag-and-drop upload and free resize/move; images can be double-clicked to toggle between thumbnail and full size with automatic bring-to-front behavior, while videos support quick double-click reset to their original aspect ratio.
   - **Smart Import**: Supports **folder drag-and-drop import**, automatically identifying image, video, and text files in a directory.
   - **Media Optimization**: Automatically generates video thumbnails, and exported pages load heavy media lazily to reduce memory pressure.
 
@@ -86,7 +86,9 @@ DataPureRef is a high-performance infinite canvas application based on React, de
 | **Select Objects** | Hold **Shift** key and drag mouse to box select, or Shift + Click to select individually; **Ctrl + A** to select all |
 | **Move Objects** | Drag directly after selection |
 | **Resize** | Drag the **Control Handles** around the selected object |
-| **Reset Size** | **Double Click** image or video object |
+| **Image Preview Toggle** | **Double Click** an image to switch between thumbnail and full size; expanded images are automatically brought to the front |
+| **Restore Thumbnail** | Select an expanded image and press **Esc** to quickly return it to thumbnail size |
+| **Video Reset Size** | **Double Click** a video object to restore its original aspect ratio quickly |
 | **Auto Arrange** | Select multiple objects, press **L** key to align and arrange automatically |
 | **Grid Layout** | Select multiple objects, **Right Click** -> **Layout** -> **Open Layout Panel**; default is `6 x 6`, and `Cols / Rows / Gap` can be customized |
 | **Global Menu** | **Right Click** on empty canvas area to manage pages, export, show/hide minimap, or open the layout panel |

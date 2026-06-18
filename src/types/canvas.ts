@@ -12,6 +12,8 @@ export interface ImageObject extends BaseCanvasObject {
   src: string;
   fileId?: string;
   alt?: string;
+  naturalSize?: { width: number; height: number };
+  thumbnailSize?: { width: number; height: number };
 }
 
 export interface VideoObject extends BaseCanvasObject {

@@ -14,17 +14,19 @@ import { generateVideoThumbnail } from '../../utils/media';
 import { ContextMenu } from './ContextMenu';
 import { GroupToolbar } from './GroupToolbar';
 import { LayoutPanel } from './LayoutPanel';
-import { CanvasObject } from '../../types/canvas';
+import { CanvasObject, ImageObject } from '../../types/canvas';
 import { Minimap } from './Minimap';
 
 import { parseLargeHtmlFile } from '../../utils/largeFileImport';
 import { placeIncomingObject, placeIncomingObjects } from '../../utils/autoLayout';
 
 const ObjectLayer = React.memo(({ objects }: { objects: CanvasObject[] }) => {
+  const sortedObjects = [...objects].sort((a, b) => a.zIndex - b.zIndex);
+
   return (
     <>
-      {objects.map((obj) => (
-        <CanvasObjectRenderer key={obj.id} object={obj} />
+      {sortedObjects.map((obj, index) => (
+        <CanvasObjectRenderer key={obj.id} object={obj} stackIndex={index + 1} />
       ))}
     </>
   );
@@ -49,6 +51,7 @@ export const InfiniteCanvas: React.FC = () => {
     editingObjectId,
     setEditingObjectId,
     objects,
+    updateObject,
     updateObjects,
     groupSelected,
     ungroupObject,
@@ -69,6 +72,7 @@ export const InfiniteCanvas: React.FC = () => {
       editingObjectId: state.editingObjectId,
       setEditingObjectId: state.setEditingObjectId,
       objects: state.objects,
+      updateObject: state.updateObject,
       updateObjects: state.updateObjects,
       groupSelected: state.groupSelected,
       ungroupObject: state.ungroupObject,
@@ -219,8 +223,42 @@ export const InfiniteCanvas: React.FC = () => {
   // Handle Keyboard Shortcuts (Delete/Backspace, L for Arrange)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+      ) {
+        return;
+      }
+
       // If we are editing text, don't delete the object on Backspace/Delete
       if (editingObjectId) return;
+
+      if (e.key === 'Escape' && selectedObjectIds.length === 1) {
+        const selectedObject = objects.find((obj) => obj.id === selectedObjectIds[0]);
+
+        if (selectedObject?.type === 'image') {
+          const imageObject = selectedObject as ImageObject;
+          const naturalSize = imageObject.naturalSize;
+          const thumbnailSize = imageObject.thumbnailSize;
+
+          if (
+            naturalSize &&
+            Math.abs(imageObject.size.width - naturalSize.width) <= 1 &&
+            Math.abs(imageObject.size.height - naturalSize.height) <= 1 &&
+            thumbnailSize
+          ) {
+            e.preventDefault();
+            updateObject(imageObject.id, {
+              size: thumbnailSize,
+              naturalSize,
+              thumbnailSize,
+            });
+            return;
+          }
+        }
+      }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedObjectIds.length > 0) {
@@ -309,7 +347,7 @@ export const InfiniteCanvas: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObjectIds, editingObjectId, removeObject, objects, updateObjects, groupSelected, ungroupObject, undo, redo]);
+  }, [selectedObjectIds, editingObjectId, removeObject, objects, updateObject, updateObjects, groupSelected, ungroupObject, undo, redo]);
 
   // Prevent default browser zoom and autoscroll (middle click)
   useEffect(() => {
